@@ -43,40 +43,55 @@ class Orbit_2body():
         return ds_dt
 
 
-class Orbit_visualizer():
-
-    def static(self, orbit ,show_earth=True):
+class OrbitVisualizer():
+    def simpleStatic(self, r, title="3D orbit around earth"):
+        
         # Create figure
         fig = go.Figure()
 
-        # Add map with country borders
-        fig.add_trace(go.Scattergeo(
-            locationmode="ISO-3",
-            lon=[],  # Automatically handled by Plotly
-            lat=[],
-            mode="lines",
-            line=dict(width=1, color="grey")  # Grey borders
+        # Define central sphere (Earth-like representation)
+        num_points = 50  # Sphere resolution
+        theta, phi = np.meshgrid(np.linspace(0, np.pi, num_points), np.linspace(0, 2*np.pi, num_points))
+
+        # Scale the sphere to a reasonable size
+        sphere_radius = 6371  # Example size for visibility
+
+        x_sphere = sphere_radius * np.sin(theta) * np.cos(phi)
+        y_sphere = sphere_radius * np.sin(theta) * np.sin(phi)
+        z_sphere = sphere_radius * np.cos(theta)
+
+        fig.add_trace(go.Surface(
+            x=x_sphere, y=y_sphere, z=z_sphere,
+            colorscale=[[0, "blue"], [1, "blue"]],  # Blue sphere
+            showscale=False
         ))
 
-        # Set layout with larger size & custom colors
+        # Preserve all existing elements, including the orbit
+        fig.add_trace(go.Scatter3d(
+            x=r[:, 0], y=r[:, 1], z=r[:, 2],
+            mode="lines",
+            line=dict(color="white", width=2),
+            name="Orbit"
+        ))
+
+        # Set layout for clean 3D interaction
         fig.update_layout(
-            width=1200,  # Increased width
-            height=1200,  # Increased height
-            geo=dict(
-                projection_type="orthographic",  # Sphere-like Earth
-                showcoastlines=True,
-                coastlinecolor="grey",  # Grey coastlines
-                showland=True,
-                landcolor="lightblue",  # Light blue Earth
-                showcountries=True,
-                countrycolor="grey",  # Grey country borders
-                bgcolor="black"  # Black background
-            ),
-            paper_bgcolor="black"  # Fully black outer background
+            title=title,  # Add title here
+            title_font=dict(size=24, color="white"),  # Customize font size and color
+            width=1200,
+            height=1200,
+            paper_bgcolor="black",
+            plot_bgcolor="black",
+            scene=dict(
+                xaxis=dict(showbackground=False, showgrid=False),
+                yaxis=dict(showbackground=False, showgrid=False),
+                zaxis=dict(showbackground=False, showgrid=False),
+            )
         )
 
         # Show plot
         fig.show()
+
 
 
     
