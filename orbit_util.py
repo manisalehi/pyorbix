@@ -2,7 +2,7 @@
 import numpy as np 
 from scipy.integrate import odeint
 import plotly.graph_objects as go
-
+import requests
 
 #The orbit propagetor
 class Orbit_2body():
@@ -93,6 +93,75 @@ class OrbitVisualizer():
 
         # Show plot
         fig.show()
+
+    def EarthStatic(self, r, title="3D earth orbit"):
+        "Plotting the orbit and the earth with countries borders"
+
+        # Get country borders from Natural Earth (GeoJSON)
+        geojson_url = "https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json"
+        geojson_data = requests.get(geojson_url).json()
+
+        # Define Earth radius in kilometers
+        earth_radius = 6371
+
+        # Generate Earth's sphere
+        theta, phi = np.linspace(0, 2*np.pi, 50), np.linspace(0, np.pi, 25)
+        theta, phi = np.meshgrid(theta, phi)
+
+        x = earth_radius * np.cos(theta) * np.sin(phi)
+        y = earth_radius * np.sin(theta) * np.sin(phi)
+        z = earth_radius * np.cos(phi)
+
+        # Generate orbit (e.g., a circular orbit around Earth)
+        orbit_theta = np.linspace(0, 2*np.pi, 100)
+        orbit_x = 1.5 * earth_radius * np.cos(orbit_theta)
+        orbit_y = 1.5 * earth_radius * np.sin(orbit_theta)
+        orbit_z = np.zeros_like(orbit_x)  # Keeping orbit in equatorial plane
+
+        # Create figure
+        fig = go.Figure()
+        fig.update_layout(showlegend=False)
+
+
+        # Add Earth
+        fig.add_trace(go.Surface(x=x, y=y, z=z, colorscale=[[0, "lightblue"], [1, "lightblue"]], showscale=False))
+
+        # Add orbit trajectory
+        fig.add_trace(go.Scatter3d(x=r[:,0], y=r[:,1], z=r[:,2], mode="lines", 
+                                line=dict(color="red", width=3), name="Orbit"))
+
+        # Add country borders (approximation by plotting geojson points)
+        for feature in geojson_data["features"]:
+            coordinates = feature["geometry"]["coordinates"]
+            for polygon in coordinates:
+                lon, lat = np.array(polygon).T
+                lat, lon = np.radians(lat), np.radians(lon)  # Convert degrees to radians
+
+                # Convert lat/lon to 3D coordinates scaled to Earth's radius
+                border_x = earth_radius * np.cos(lon) * np.cos(lat)
+                border_y = earth_radius * np.sin(lon) * np.cos(lat)
+                border_z = earth_radius * np.sin(lat)
+
+                fig.add_trace(go.Scatter3d(x=border_x, y=border_y, z=border_z, mode="lines",
+                                        line=dict(color="black", width=1), name="Borders"))
+
+        # Customize view
+        # Customize view
+        fig.update_layout(
+            paper_bgcolor="black",
+            plot_bgcolor="black",
+            title=title,  # Add title
+            title_font=dict(size=20, color="white"),  # Customize title font
+            
+            scene=dict(
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False),
+                zaxis=dict(visible=False),    
+            )
+        )
+
+        fig.show()
+
 
     def SimpleDynamic(self, r, time, title="3D animation of orbit"):
         "Plotting the orbital motion with animation"
