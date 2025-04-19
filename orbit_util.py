@@ -253,6 +253,121 @@ class OrbitVisualizer():
         # Show plot
         fig.show()
 
+    def EarthDynamic(self, r, time, title="3D animation of orbital motion around earth"):
+
+
+        # Get country borders from Natural Earth (GeoJSON)
+        geojson_url = "https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json"
+        geojson_data = requests.get(geojson_url).json()
+
+        earth_radius = 6371
+
+        "Plotting the orbital motion with animation"
+
+        # Create figure
+        fig = go.Figure()
+
+        # Define central sphere (Earth representation)
+        num_points = 50
+        theta, phi = np.meshgrid(np.linspace(0, np.pi, num_points), np.linspace(0, 2*np.pi, num_points))
+
+        # Scale the sphere to Earth's actual radius (6371 km)
+        sphere_radius = 6371
+        x_sphere = sphere_radius * np.sin(theta) * np.cos(phi)
+        y_sphere = sphere_radius * np.sin(theta) * np.sin(phi)
+        z_sphere = sphere_radius * np.cos(theta)
+
+        fig.update_layout(showlegend=False) #Not showing the legend
+
+        # Add Earth Sphere
+        fig.add_trace(go.Surface(
+            x=x_sphere, y=y_sphere, z=z_sphere,
+            colorscale=[[0, "lightblue"], [1, "lightblue"]],
+            showscale=False
+        ))
+
+        # Convert orbit to NumPy array for animation steps
+        num_orbit_points = len(r)
+
+        # Initialize empty orbit trace (animated later)
+        fig.add_trace(go.Scatter3d(
+            x=[], y=[], z=[],  # Start with an empty orbit
+            mode="lines",
+            line=dict(color="red", width=2),
+            name="Orbit"
+        ))
+
+        # Add Earth land and borders (approximate using lat/lon)
+        for feature in geojson_data["features"]:
+            coordinates = feature["geometry"]["coordinates"]
+            for polygon in coordinates:
+                lon, lat = np.array(polygon).T
+                lat, lon = np.radians(lat), np.radians(lon)  # Convert degrees to radians
+
+                # Convert lat/lon to 3D coordinates scaled to Earth's radius
+                border_x = earth_radius * np.cos(lon) * np.cos(lat)
+                border_y = earth_radius * np.sin(lon) * np.cos(lat)
+                border_z = earth_radius * np.sin(lat)
+
+                fig.add_trace(go.Scatter3d(x=border_x, y=border_y, z=border_z, mode="lines",
+                                        line=dict(color="black", width=1), name="Borders"))
+
+
+        # Create animation frames (Earth stays constant, orbit updates, time updates)
+        frames = [
+            go.Frame(
+                data=[
+                    go.Surface(
+                        x=x_sphere, y=y_sphere, z=z_sphere,
+                        colorscale=[[0, "lightblue"], [1, "lightblue"]],
+                        showscale=False
+                    ),  # Keep Earth in every frame!
+                    go.Scatter3d(
+                        x=r[:i+1, 0], y=r[:i+1, 1], z=r[:i+1, 2],  # Add orbit points
+                        mode="lines",
+                        line=dict(color="red", width=2)
+                    )
+                ],
+                layout=go.Layout(
+                    annotations=[dict(
+                        text=f"Time: {time[i]/3600:10.2f}h",  # **Display current time step**
+                        x=0.05, y=0.95,  # Position in top-left corner
+                        xref="paper", yref="paper",
+                        showarrow=False,
+                        font=dict(size=20, color="white")
+                    )]
+                )
+            ) for i in range(num_orbit_points)
+        ]
+
+        # Apply animation settings
+        fig.frames = frames
+
+        fig.update_layout(
+            title="test",
+            title_font=dict(size=24, color="white"),
+            width=1200,
+            height=1200,
+            paper_bgcolor="black",
+            plot_bgcolor="black",
+            scene=dict(
+                xaxis=dict(showbackground=False, showgrid=False),
+                yaxis=dict(showbackground=False, showgrid=False),
+                zaxis=dict(showbackground=False, showgrid=False),
+            ),
+            updatemenus=[dict(
+                type="buttons",
+                showactive=True,  # Ensure button remains active
+                buttons=[dict(
+                    label="Play",
+                    method="animate",
+                    args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True)]  
+                )]
+            )]
+        )
+
+        # Show plot
+        fig.show()
 
 
 
