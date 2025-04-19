@@ -1,8 +1,7 @@
 #Dependencies
 import numpy as np 
 from scipy.integrate import odeint
-import pandas
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import math
 
 #The orbit propagetor
@@ -43,5 +42,43 @@ class Orbit_2body():
 
         return ds_dt
 
+
+class Orbit_visualizer():
+
+    def static(self, orbit ,show_earth=True):
+        # Create figure
+        fig = go.Figure()
+
+        # Add map with country borders
+        fig.add_trace(go.Scattergeo(
+            locationmode="ISO-3",
+            lon=[],  # Automatically handled by Plotly
+            lat=[],
+            mode="lines",
+            line=dict(width=1, color="grey")  # Grey borders
+        ))
+
+        # Set layout with larger size & custom colors
+        fig.update_layout(
+            width=1200,  # Increased width
+            height=1200,  # Increased height
+            geo=dict(
+                projection_type="orthographic",  # Sphere-like Earth
+                showcoastlines=True,
+                coastlinecolor="grey",  # Grey coastlines
+                showland=True,
+                landcolor="lightblue",  # Light blue Earth
+                showcountries=True,
+                countrycolor="grey",  # Grey country borders
+                bgcolor="black"  # Black background
+            ),
+            paper_bgcolor="black"  # Fully black outer background
+        )
+
+        # Show plot
+        fig.show()
+
+
+    
 
     
