@@ -2,7 +2,7 @@
 import numpy as np 
 from scipy.integrate import odeint
 import plotly.graph_objects as go
-import math
+
 
 #The orbit propagetor
 class Orbit_2body():
@@ -12,6 +12,7 @@ class Orbit_2body():
 
     #Propagting the orbit from the intial conditons
     def propagate_init_cond(self, T, time_step, R0, V0):
+        "Propagting the orbit using the inital conditions"
         
         S0 = np.hstack([R0, V0])            #Inital condition state vector
         t = np.arange(0, T, time_step)     #The time step's to solve the equation for
@@ -27,6 +28,7 @@ class Orbit_2body():
 
     #Calculating the dS/dt with the 2 Body differential equation 
     def dS_dt(self, state ,t):  
+        "Returning the time derivative of the state vector"
 
         x = state[0]
         y = state[1]
@@ -45,7 +47,7 @@ class Orbit_2body():
 
 class OrbitVisualizer():
     def simpleStatic(self, r, title="3D orbit around earth"):
-        
+        "Plotting the orbit in static form. No animation"
         # Create figure
         fig = go.Figure()
 
@@ -93,8 +95,7 @@ class OrbitVisualizer():
         fig.show()
 
     def SimpleDynamic(self, r, time, title="3D animation of orbit"):
-        
-        r = r[:400]
+        "Plotting the orbital motion with animation"
 
         # Create figure
         fig = go.Figure()
