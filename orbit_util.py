@@ -92,6 +92,99 @@ class OrbitVisualizer():
         # Show plot
         fig.show()
 
+    def SimpleDynamic(self, r, time, title="3D animation of orbit"):
+        
+        r = r[:400]
+
+        # Create figure
+        fig = go.Figure()
+
+        # Define central sphere (Earth representation)
+        num_points = 50
+        theta, phi = np.meshgrid(np.linspace(0, np.pi, num_points), np.linspace(0, 2*np.pi, num_points))
+
+        # Scale the sphere to Earth's actual radius (6371 km)
+        sphere_radius = 6371
+        x_sphere = sphere_radius * np.sin(theta) * np.cos(phi)
+        y_sphere = sphere_radius * np.sin(theta) * np.sin(phi)
+        z_sphere = sphere_radius * np.cos(theta)
+
+        # Add Earth Sphere
+        fig.add_trace(go.Surface(
+            x=x_sphere, y=y_sphere, z=z_sphere,
+            colorscale=[[0, "blue"], [1, "blue"]],
+            showscale=False
+        ))
+
+        # Convert orbit to NumPy array for animation steps
+        num_orbit_points = len(r)
+
+        # Initialize empty orbit trace (animated later)
+        fig.add_trace(go.Scatter3d(
+            x=[], y=[], z=[],  # Start with an empty orbit
+            mode="lines",
+            line=dict(color="white", width=2),
+            name="Orbit"
+        ))
+
+        # Create animation frames (Earth stays constant, orbit updates, time updates)
+        frames = [
+            go.Frame(
+                data=[
+                    go.Surface(
+                        x=x_sphere, y=y_sphere, z=z_sphere,
+                        colorscale=[[0, "blue"], [1, "blue"]],
+                        showscale=False
+                    ),  # Keep Earth in every frame!
+                    go.Scatter3d(
+                        x=r[:i+1, 0], y=r[:i+1, 1], z=r[:i+1, 2],  # Add orbit points
+                        mode="lines",
+                        line=dict(color="white", width=2)
+                    )
+                ],
+                layout=go.Layout(
+                    annotations=[dict(
+                        text=f"Time: {time[i]/3600:10.2f}h",  # **Display current time step**
+                        x=0.05, y=0.95,  # Position in top-left corner
+                        xref="paper", yref="paper",
+                        showarrow=False,
+                        font=dict(size=20, color="white")
+                    )]
+                )
+            ) for i in range(num_orbit_points)
+        ]
+
+        # Apply animation settings
+        fig.frames = frames
+
+        fig.update_layout(
+            title=title,
+            title_font=dict(size=24, color="white"),
+            width=1200,
+            height=1200,
+            paper_bgcolor="black",
+            plot_bgcolor="black",
+            scene=dict(
+                xaxis=dict(showbackground=False, showgrid=False),
+                yaxis=dict(showbackground=False, showgrid=False),
+                zaxis=dict(showbackground=False, showgrid=False),
+            ),
+            updatemenus=[dict(
+                type="buttons",
+                showactive=True,  # Ensure button remains active
+                buttons=[dict(
+                    label="Play",
+                    method="animate",
+                    args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True)]  
+                )]
+            )]
+        )
+
+        # Show plot
+        fig.show()
+
+
+
 
 
     
