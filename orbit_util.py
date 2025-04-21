@@ -46,7 +46,7 @@ class Orbit_2body():
 
 
 class OrbitVisualizer():
-    def simpleStatic(self, r, title="3D orbit around earth"):
+    def SimpleStatic(self, r, title="3D orbit around earth"):
         "Plotting the orbit in static form. No animation"
         # Create figure
         fig = go.Figure()
@@ -94,7 +94,7 @@ class OrbitVisualizer():
         # Show plot
         fig.show()
 
-    def EarthStatic(self, r, title="3D earth orbit"):
+    def EarthStatic(self, r, title="Plotting the orbit and the earth with countries borders"):
         "Plotting the orbit and the earth with countries borders"
 
         # Get country borders from Natural Earth (GeoJSON)
@@ -163,7 +163,7 @@ class OrbitVisualizer():
         fig.show()
 
 
-    def SimpleDynamic(self, r, time, title="3D animation of orbit"):
+    def SimpleDynamic(self, r, time, title="Orbital motion of the spacecraft around the earth"):
         "Plotting the orbital motion with animation"
 
         # Create figure
@@ -253,7 +253,7 @@ class OrbitVisualizer():
         # Show plot
         fig.show()
 
-    def EarthDynamic(self, r, time, title="3D animation of orbital motion around earth"):
+    def EarthDynamic(self, r, time, title="Detailed Orbital motion of the spacecraft around the earth"):
 
 
         # Get country borders from Natural Earth (GeoJSON)
@@ -344,7 +344,7 @@ class OrbitVisualizer():
         fig.frames = frames
 
         fig.update_layout(
-            title="test",
+            title=title,
             title_font=dict(size=24, color="white"),
             width=1200,
             height=1200,
