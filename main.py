@@ -10,7 +10,7 @@ VZ_0 = 0.0057  # [km/s]
 state_0 = [X_0, Y_0, Z_0, VX_0, VY_0, VZ_0]
 
 orbit = Orbit_2body()   #Make an instance of orbit class
-r, t =orbit.propagate_init_cond(T = 6*3600, time_step = 10, R0 = state_0[0:3], V0 =state_0[3:6])    #Propagte the orbit
+r, t =orbit.propagate_init_cond(T = 24*3600, time_step = 10, R0 = state_0[0:3], V0 =state_0[3:6])    #Propagte the orbit
 
 from orbit_util import OrbitVisualizer
 
