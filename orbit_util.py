@@ -4,6 +4,7 @@ from scipy.integrate import odeint
 import plotly.graph_objects as go
 import requests
 import random
+from math import sin, cos, pi, atan2
 
 
 #The orbit propagetor
@@ -30,6 +31,75 @@ class Orbit_2body():
         self.t = t
 
         return sol, t
+
+    #delta_true_anomaly is assumed to be in degrees if provided in radians set the is_radians to true
+    def perifocal_calculator(self, r0, v0, delta_true_anomaly, is_radians = False):
+        "Prediciting the r and v of the sattelite's position vecotr and velocity vector after a specific amount of true anomaly"
+        #Converting the delta_true_anomaly to radians to be used with math.sin() and math.cos()
+        if not is_radians:
+            tr_anomaly = delta_true_anomaly * pi / 180
+
+        #Converting the r0 and v0 to array to perform vector calculus using np
+        r0 = np.array(r0)
+        v0 = np.array(v0)
+
+        #Finding the angular momentum of the orbit
+        _ , h = self.specific_angular_momentum(r0, v0) 
+
+        #Finding the Vro
+        v_r0 = np.dot(v0 , r0) / np.linalg.norm(r0)
+
+        #Calculating the r0_mag
+        r0_mag = np.linalg.norm(r0)
+
+        #Calculating the r at the delta_true_anomaly
+        r = (h ** 2 / self.mu) * 1/(1 + (h**2/(self.mu*r0_mag) - 1 )*cos(tr_anomaly) - (h*v_r0/self.mu) * sin(tr_anomaly))
+
+        #Calculating the lagrange coefficents
+        f = 1 - (self.mu * r / h**2) * (1 - cos(tr_anomaly))                                                                            #[Dimensionless]
+        g = r * r0_mag * sin(tr_anomaly) / h                                                                                               #[1/s]
+        f_dot = self.mu * (1 - cos(tr_anomaly)) / (h * sin(tr_anomaly)) * ( (self.mu / h**2) * (1-cos(tr_anomaly)) - 1 / r0_mag - 1/r )    #[1/s]
+        g_dot = 1 - self.mu * r0_mag * (1 - cos(tr_anomaly)) / h**2                                                                     #[Dimensionless]
+
+        #Calculating the postition and the velocity vector 
+        r_vec = f * r0 + g * v0 
+        v_vec = f_dot * r0 + g_dot * v0
+
+        #---Calculating if the coordinates frame is the actual perifocal or the rotated version of it 
+        #---Finding the inital_true_anomaly and the eccentricity form the 2Body orbit equation and Vr formula
+        esin = v_r0 * h / self.mu
+        ecos = h**2 / (self.mu * r0_mag) -1 
+
+        #Finding the inital_true_anomaly
+        inital_true_anomaly = atan2(esin, ecos)
+
+        #Finding the virtual_anomaly
+        inital_virtual_anomaly = atan2(r0[1], r0[0]) 
+
+        #Finding the angle which the coordinate system has been rotated about the Z-axis of the perifocal frame
+        angle_of_rotation = inital_true_anomaly - inital_virtual_anomaly
+
+        #Converting the angle of rotation to degree
+        angle_of_rotation = angle_of_rotation * 180 / pi
+
+        return r_vec, v_vec, angle_of_rotation
+
+
+    #If the 2Body assumption without disturbance and thruster's interfearance are assume the h = constant
+    def specific_angular_momentum(self, r, v):
+        "Calculating  the specific angular momentum of the sattlite in a specific location"
+
+        #Convert to np.arr
+        r = np.array(r)
+        v = np.array(v)
+
+        #Calculating the h vector
+        h_vec = np.cross(r, v, axisa=-1, axisb=-1, axisc=-1, axis=None)
+
+        #Magnitude
+        h_mag = np.linalg.norm(h_vec)
+
+        return h_vec, h_mag
 
     #Calculating the dS/dt with the 2 Body differential equation 
     def dS_dt(self, state ,t):  
@@ -96,356 +166,8 @@ class OrbitVisualizer():
         chars = '0123456789ABCDEF'
         return ['#'+''.join(random.sample(chars,6)) for i in range(num)]
 
-    def simpleStatic(self, r, title="3D orbit around earth"):
-        "Plotting the orbit in static form. No animation"
-        # Create figure
-        fig = go.Figure()
-
-        # Define central sphere (Earth-like representation)
-        num_points = 50  # Sphere resolution
-        theta, phi = np.meshgrid(np.linspace(0, np.pi, num_points), np.linspace(0, 2*np.pi, num_points))
-
-        # Scale the sphere to a reasonable size
-        sphere_radius = 6371  # Example size for visibility
-
-        x_sphere = sphere_radius * np.sin(theta) * np.cos(phi)
-        y_sphere = sphere_radius * np.sin(theta) * np.sin(phi)
-        z_sphere = sphere_radius * np.cos(theta)
-
-        fig.add_trace(go.Surface(
-            x=x_sphere, y=y_sphere, z=z_sphere,
-            colorscale=[[0, "blue"], [1, "blue"]],  # Blue sphere
-            showscale=False
-        ))
-
-        # Preserve all existing elements, including the orbit
-        fig.add_trace(go.Scatter3d(
-            x=r[:, 0], y=r[:, 1], z=r[:, 2],
-            mode="lines",
-            line=dict(color="white", width=2),
-            name="Orbit"
-        ))
-
-        # Set layout for clean 3D interaction
-        fig.update_layout(
-            title=title,  # Add title here
-            title_font=dict(size=24, color="white"),  # Customize font size and color
-            width=1200,
-            height=1200,
-            paper_bgcolor="black",
-            plot_bgcolor="black",
-            scene=dict(
-                xaxis=dict(showbackground=False, showgrid=False),
-                yaxis=dict(showbackground=False, showgrid=False),
-                zaxis=dict(showbackground=False, showgrid=False),
-            )
-        )
-
-        # Show plot
-        fig.show()
-
-    def EarthStatic(self, r, title="3D earth orbit"):
-        "Plotting the orbit and the earth with countries borders"
-
-        # Get country borders from Natural Earth (GeoJSON)
-        geojson_url = "https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json"
-        geojson_data = requests.get(geojson_url).json()
-
-        # Define Earth radius in kilometers
-        earth_radius = 6371
-
-        # Generate Earth's sphere
-        theta, phi = np.linspace(0, 2*np.pi, 50), np.linspace(0, np.pi, 25)
-        theta, phi = np.meshgrid(theta, phi)
-
-        x = earth_radius * np.cos(theta) * np.sin(phi)
-        y = earth_radius * np.sin(theta) * np.sin(phi)
-        z = earth_radius * np.cos(phi)
-
-        # Generate orbit (e.g., a circular orbit around Earth)
-        orbit_theta = np.linspace(0, 2*np.pi, 100)
-        orbit_x = 1.5 * earth_radius * np.cos(orbit_theta)
-        orbit_y = 1.5 * earth_radius * np.sin(orbit_theta)
-        orbit_z = np.zeros_like(orbit_x)  # Keeping orbit in equatorial plane
-
-        # Create figure
-        fig = go.Figure()
-        fig.update_layout(showlegend=False)
-
-
-        # Add Earth
-        fig.add_trace(go.Surface(x=x, y=y, z=z, colorscale=[[0, "lightblue"], [1, "lightblue"]], showscale=False))
-
-        # Add orbit trajectory
-        fig.add_trace(go.Scatter3d(x=r[:,0], y=r[:,1], z=r[:,2], mode="lines", 
-                                line=dict(color="red", width=3), name="Orbit"))
-
-        # Add country borders (approximation by plotting geojson points)
-        for feature in geojson_data["features"]:
-            coordinates = feature["geometry"]["coordinates"]
-            for polygon in coordinates:
-                lon, lat = np.array(polygon).T
-                lat, lon = np.radians(lat), np.radians(lon)  # Convert degrees to radians
-
-                # Convert lat/lon to 3D coordinates scaled to Earth's radius
-                border_x = earth_radius * np.cos(lon) * np.cos(lat)
-                border_y = earth_radius * np.sin(lon) * np.cos(lat)
-                border_z = earth_radius * np.sin(lat)
-
-                fig.add_trace(go.Scatter3d(x=border_x, y=border_y, z=border_z, mode="lines",
-                                        line=dict(color="black", width=1), name="Borders"))
-
-        # Customize view
-        # Customize view
-        fig.update_layout(
-            paper_bgcolor="black",
-            plot_bgcolor="black",
-            title=title,  # Add title
-            title_font=dict(size=20, color="white"),  # Customize title font
-            
-            scene=dict(
-                xaxis=dict(visible=False),
-                yaxis=dict(visible=False),
-                zaxis=dict(visible=False),    
-            )
-        )
-
-        fig.show()
-
-
-    def SimpleDynamic(self, r, time, title="3D animation of orbit"):
-        "Plotting the orbital motion with animation"
-
-        # Create figure
-        fig = go.Figure()
-
-        # Define central sphere (Earth representation)
-        num_points = 50
-        theta, phi = np.meshgrid(np.linspace(0, np.pi, num_points), np.linspace(0, 2*np.pi, num_points))
-
-        # Scale the sphere to Earth's actual radius (6371 km)
-        sphere_radius = 6371
-        x_sphere = sphere_radius * np.sin(theta) * np.cos(phi)
-        y_sphere = sphere_radius * np.sin(theta) * np.sin(phi)
-        z_sphere = sphere_radius * np.cos(theta)
-
-        # Add Earth Sphere
-        fig.add_trace(go.Surface(
-            x=x_sphere, y=y_sphere, z=z_sphere,
-            colorscale=[[0, "blue"], [1, "blue"]],
-            showscale=False
-        ))
-
-        # Convert orbit to NumPy array for animation steps
-        num_orbit_points = len(r)
-
-        # Initialize empty orbit trace (animated later)
-        fig.add_trace(go.Scatter3d(
-            x=[], y=[], z=[],  # Start with an empty orbit
-            mode="lines",
-            line=dict(color="white", width=2),
-            name="Orbit"
-        ))
-
-        #The satellite
-        fig.add_trace(go.Scatter3d(
-            x=[], y=[], z=[],  # Start with an empty orbit
-            mode="lines",
-            line=dict(color="white", width=2),
-            name="Orbit"
-        ))
-
-        # Create animation frames (Earth stays constant, orbit updates, time updates)
-        frames = [
-            go.Frame(
-                data=[
-                    go.Surface(
-                        x=x_sphere, y=y_sphere, z=z_sphere,
-                        colorscale=[[0, "blue"], [1, "blue"]],
-                        showscale=False
-                    ),  # Keep Earth in every frame!
-                    go.Scatter3d(
-                        x=r[:i+1, 0], y=r[:i+1, 1], z=r[:i+1, 2],  # Add orbit points
-                        mode="lines",
-                        line=dict(color="white", width=2)
-                    ),
-                    go.Scatter3d(
-                        x=r[i:i+1, 0], y=r[i:i+1, 1], z=r[i:i+1, 2], 
-                        mode = "markers",
-                        line = dict(color="pink")
-                    )
-                ],
-                layout=go.Layout(
-                    annotations=[dict(
-                        text=f"Time: {time[i]/3600:10.2f}h",  # **Display current time step**
-                        x=0.05, y=0.95,  # Position in top-left corner
-                        xref="paper", yref="paper",
-                        showarrow=False,
-                        font=dict(size=20, color="white")
-                    )]
-                )
-            ) for i in range(num_orbit_points)
-        ]
-
-        # Apply animation settings
-        fig.frames = frames
-
-        fig.update_layout(
-            title=title,
-            title_font=dict(size=24, color="white"),
-            width=1200,
-            height=1200,
-            paper_bgcolor="black",
-            plot_bgcolor="black",
-            scene=dict(
-                xaxis=dict(showbackground=False, showgrid=False),
-                yaxis=dict(showbackground=False, showgrid=False),
-                zaxis=dict(showbackground=False, showgrid=False),
-            ),
-            updatemenus=[dict(
-                type="buttons",
-                showactive=True,  # Ensure button remains active
-                buttons=[dict(
-                    label="Play",
-                    method="animate",
-                    args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True)]  
-                )]
-            )]
-        )
-
-        # Show plot
-        fig.show()
-
-    def EarthDynamic(self, r, time, title="3D animation of orbital motion around earth"):
-        "Plotting the orbital motion with animation"
-
-        # Get country borders from Natural Earth (GeoJSON)
-        geojson_url = "https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json"
-        geojson_data = requests.get(geojson_url).json()
-
-        earth_radius = 6371
-
-
-        # Create figure
-        fig = go.Figure()
-
-        # Define central sphere (Earth representation)
-        num_points = 50
-        theta, phi = np.meshgrid(np.linspace(0, np.pi, num_points), np.linspace(0, 2*np.pi, num_points))
-
-        # Scale the sphere to Earth's actual radius (6371 km)
-        sphere_radius = 6371
-        x_sphere = sphere_radius * np.sin(theta) * np.cos(phi)
-        y_sphere = sphere_radius * np.sin(theta) * np.sin(phi)
-        z_sphere = sphere_radius * np.cos(theta)
-
-        fig.update_layout(showlegend=False) #Not showing the legend
-
-        # Add Earth Sphere
-        fig.add_trace(go.Surface(
-            x=x_sphere, y=y_sphere, z=z_sphere,
-            colorscale=[[0, "lightblue"], [1, "lightblue"]],
-            showscale=False
-        ))
-
-        # Convert orbit to NumPy array for animation steps
-        num_orbit_points = len(r)
-
-        # Initialize empty orbit trace (animated later)
-        fig.add_trace(go.Scatter3d(
-            x=[], y=[], z=[],  # Start with an empty orbit
-            mode="lines",
-            line=dict(color="red", width=2),
-            name="Orbit"
-        ))
-
-        #The sattlite
-        fig.add_trace(go.Scatter3d(
-            x=[], y=[], z=[],  # Start with an empty orbit
-            mode="lines",
-            line=dict(color="white", width=2),
-            name="Orbit"
-        ))
-
-        # Add Earth land and borders (approximate using lat/lon)
-        for feature in geojson_data["features"]:
-            coordinates = feature["geometry"]["coordinates"]
-            for polygon in coordinates:
-                lon, lat = np.array(polygon).T
-                lat, lon = np.radians(lat), np.radians(lon)  # Convert degrees to radians
-
-                # Convert lat/lon to 3D coordinates scaled to Earth's radius
-                border_x = earth_radius * np.cos(lon) * np.cos(lat)
-                border_y = earth_radius * np.sin(lon) * np.cos(lat)
-                border_z = earth_radius * np.sin(lat)
-
-                fig.add_trace(go.Scatter3d(x=border_x, y=border_y, z=border_z, mode="lines",
-                                        line=dict(color="black", width=1), name="Borders"))
-
-
-        # Create animation frames (Earth stays constant, orbit updates, time updates)
-        frames = [
-            go.Frame(
-                data=[
-                    go.Surface(
-                        x=x_sphere, y=y_sphere, z=z_sphere,
-                        colorscale=[[0, "lightblue"], [1, "lightblue"]],
-                        showscale=False
-                    ),  # Keep Earth in every frame!
-                    go.Scatter3d(
-                        x=r[:i+1, 0], y=r[:i+1, 1], z=r[:i+1, 2],  # Add orbit points
-                        mode="lines",
-                        line=dict(color="red", width=2)
-                    ),
-                    go.Scatter3d(
-                        x=r[i:i+1, 0], y=r[i:i+1, 1], z=r[i:i+1, 2], 
-                        mode = "markers",
-                        line = dict(color="pink")
-                    )
-                ],
-                layout=go.Layout(
-                    annotations=[dict(
-                        text=f"Time: {time[i]/3600:10.2f}h",  # **Display current time step**
-                        x=0.05, y=0.95,  # Position in top-left corner
-                        xref="paper", yref="paper",
-                        showarrow=False,
-                        font=dict(size=20, color="white")
-                    )]
-                )
-            ) for i in range(num_orbit_points)
-        ]
-
-        # Apply animation settings
-        fig.frames = frames
-
-        fig.update_layout(
-            title=title,
-            title_font=dict(size=24, color="white"),
-            width=1200,
-            height=1200,
-            paper_bgcolor="black",
-            plot_bgcolor="black",
-            scene=dict(
-                xaxis=dict(showbackground=False, showgrid=False),
-                yaxis=dict(showbackground=False, showgrid=False),
-                zaxis=dict(showbackground=False, showgrid=False),
-            ),
-            updatemenus=[dict(
-                type="buttons",
-                showactive=True,  # Ensure button remains active
-                buttons=[dict(
-                    label="Play",
-                    method="animate",
-                    args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True)]  
-                )]
-            )]
-        )
-
-        # Show plot
-        fig.show()
-
     #The multiple visualizer
-    def simpleStaticM(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
+    def simpleStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbit in static form. No animation"
         # Create figure
         fig = go.Figure()
@@ -524,7 +246,7 @@ class OrbitVisualizer():
         # Show plot
         fig.show()
 
-    def EarthStaticM(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
+    def EarthStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbit and the earth with countries borders"
         # Create figure
         fig = go.Figure()
@@ -582,6 +304,11 @@ class OrbitVisualizer():
         for feature in geojson_data["features"]:
             coordinates = feature["geometry"]["coordinates"]
             for polygon in coordinates:
+                #Handelling the MultiPolygon type 
+                if feature['geometry']['type'] == "MultiPolygon":
+                    polygon = np.array(polygon)
+                    polygon = polygon.reshape(polygon.shape[1], 2)
+
                 lon, lat = np.array(polygon).T
                 lat, lon = np.radians(lat), np.radians(lon)  # Convert degrees to radians
 
@@ -622,7 +349,7 @@ class OrbitVisualizer():
 
 
 
-    def SimpleDynamicM(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
+    def SimpleDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbital motion with animation"
 
         # Create figure
@@ -743,7 +470,7 @@ class OrbitVisualizer():
         fig.show()
 
 
-    def EarthDynamicM(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
+    def EarthDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbital motion with animation"
 
         # Get country borders from Natural Earth (GeoJSON)
@@ -815,6 +542,11 @@ class OrbitVisualizer():
         for feature in geojson_data["features"]:
             coordinates = feature["geometry"]["coordinates"]
             for polygon in coordinates:
+                #Handeling MultiPolygon type
+                if feature['geometry']['type'] == "MultiPolygon":
+                    polygon = np.array(polygon)
+                    polygon = polygon.reshape(polygon.shape[1], 2)
+
                 lon, lat = np.array(polygon).T
                 lat, lon = np.radians(lat), np.radians(lon)  # Convert degrees to radians
 
@@ -895,6 +627,7 @@ class OrbitVisualizer():
         z_sphere = sphere_radius * np.cos(theta)
 
         return x_sphere, y_sphere, z_sphere
+
 
     #i is the time 
     #n is the number of orbits/satellites
