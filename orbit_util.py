@@ -4,7 +4,7 @@ from scipy.integrate import odeint
 import plotly.graph_objects as go
 import requests
 import random
-from math import sin, cos, pi, atan2
+from math import sin, cos, pi, atan2, sqrt
 
 
 #The orbit propagetor
@@ -158,6 +158,31 @@ class Orbit_2body():
 
         elif energy > 0 :
             return "hyperbolic"
+        
+    #Finding the change in true anomaly with time
+    def time_since_perigee(self, h, e, true_anomaly):
+        #Instead of seperating the 
+        "NON"
+
+    #Calculating the eccentricity base on the position and velocity vector
+    def eccentricity(self, r, v):
+        "Calculating the e using the energy equation"
+
+        #Converting the r and v into numpy array
+        r = np.array(r)
+        v = np.array(v)
+        
+        #Energy of the orbit
+        epsillon = self.energy(r,v)
+
+        #specific angular momentum
+        _, h =self.specific_angular_momentum(r=r, v=v)
+
+        #Formula to calcualte the eccentricty:
+        # epsillon = -0.5 * (mu/h)^2 * (1-e^2) => e = sqrt(2*(h/mu)**2 * eps + 1)
+        e = sqrt(2 * epsillon * h **2 / self.mu ** 2 + 1)
+
+        return e
 
     
 
@@ -167,7 +192,7 @@ class OrbitVisualizer():
         return ['#'+''.join(random.sample(chars,6)) for i in range(num)]
 
     #The multiple visualizer
-    def simpleStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]]), line_width = 4):
+    def simpleStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbit in static form. No animation"
         # Create figure
         fig = go.Figure()
@@ -215,7 +240,7 @@ class OrbitVisualizer():
             fig.add_trace(go.Scatter3d(
                 x=orbit[:, 0], y=orbit[:, 1], z=orbit[:, 2],
                 mode="lines",
-                line=dict(color=colors[ind], width=line_width),
+                line=dict(color=colors[ind], width=2),
                 name=names[ind]
             ))
 
@@ -246,7 +271,7 @@ class OrbitVisualizer():
         # Show plot
         fig.show()
 
-    def EarthStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]]) , line_width = 4):
+    def EarthStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbit and the earth with countries borders"
         # Create figure
         fig = go.Figure()
@@ -295,7 +320,7 @@ class OrbitVisualizer():
             fig.add_trace(go.Scatter3d(
                 x=orbit[:, 0], y=orbit[:, 1], z=orbit[:, 2],
                 mode="lines",
-                line=dict(color=colors[ind], width= line_width),
+                line=dict(color=colors[ind], width=2),
                 name=names[ind]
             ))
 
@@ -349,7 +374,7 @@ class OrbitVisualizer():
 
 
 
-    def SimpleDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]]), line_width = 4):
+    def SimpleDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbital motion with animation"
 
         # Create figure
@@ -401,7 +426,7 @@ class OrbitVisualizer():
             fig.add_trace(go.Scatter3d(
                 x=[], y=[], z=[],  # Start with an empty orbit
                 mode="lines",
-                line=dict(color="white", width=line_width ),
+                line=dict(color="white", width=2),
                 name= names[i]
             ))
 
@@ -470,7 +495,7 @@ class OrbitVisualizer():
         fig.show()
 
 
-    def EarthDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]]) , line_width = 4):
+    def EarthDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbital motion with animation"
 
         # Get country borders from Natural Earth (GeoJSON)
@@ -525,7 +550,7 @@ class OrbitVisualizer():
             fig.add_trace(go.Scatter3d(
                 x=[], y=[], z=[],  # Start with an empty orbit
                 mode="lines",
-                line=dict(color="white", width= line_width ),
+                line=dict(color="white", width=2),
                 name= names[i]
             ))
 
