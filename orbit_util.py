@@ -1,10 +1,11 @@
 #Dependencies
 import numpy as np 
-from scipy.integrate import odeint
+from scipy.integrate import odeint, quad
+from scipy.optimize  import fsolve
 import plotly.graph_objects as go
 import requests
 import random
-from math import sin, cos, pi, atan2
+from math import sin, cos, pi, atan2, sqrt, atan, tan
 
 
 #The orbit propagetor
@@ -158,6 +159,129 @@ class Orbit_2body():
 
         elif energy > 0 :
             return "hyperbolic"
+        
+
+    #Calculating the eccentricity base on the position and velocity vector
+    def eccentricity(self, r, v):
+        "Calculating the e using the energy equation"
+
+        #Converting the r and v into numpy array
+        r = np.array(r)
+        v = np.array(v)
+        
+        #Energy of the orbit
+        epsillon = self.energy(r,v)
+
+        #specific angular momentum
+        _, h =self.specific_angular_momentum(r=r, v=v)
+
+        #Formula to calcualte the eccentricty:
+        # epsillon = -0.5 * (mu/h)^2 * (1-e^2) => e = sqrt(2*(h/mu)**2 * eps + 1)
+        e = sqrt(2 * epsillon * h **2 / self.mu ** 2 + 1)
+
+        return e
+    
+    #Finding the change in true anomaly with time
+    def time_since_perigee(self ,true_anomaly, r=None, v=None, h=None, e=None):
+        """
+        Calculates the time required to get from the preigee to the specified true anomaly.\n
+        Parameters:\n
+            If h and e are known provide them otherwise provide r and v (true_anomaly must be in radians)\n
+        Returns:\n
+            time: Seconds\n 
+            error : Estimated absolute error
+
+        """
+
+        #Calcualting the neccessary variables(If not provided)
+        if h == None:
+            h = self.specific_angular_momentum(r,v)
+        if e == None:
+            e = self.eccentricity(r,v) 
+
+        #Integrating the general formula -> Is valid for all orbit types
+        f_t = lambda theta: (h**3 / self.mu ** 2) * 1/(1+e * np.cos(theta))**2
+
+        time, err = quad(f_t, 0, true_anomaly)
+
+        return time ,err
+    
+    #Calculating the true anomaly of the satellite from the time since preigee
+    def true_anomaly_from_time(self, time, h=None ,e=None ,r=None , v=None):
+        """
+        Calculates the true anomaly of satellite from the time since preigee.\n
+        Parameters:\n
+            If h and e are known provide them otherwise provide r and v (time is the time from preigee in seconds)\n
+        Returns:\n
+            true_anomaly: (float) in radians
+            eccentric_anomaly: (flot)
+            mean_anomaly: (float) in radians
+        """
+
+        #Calcualting the neccessary variables(If not provided)
+        if h == None:
+            h = self.specific_angular_momentum(r,v)
+        if e == None:
+            e = self.eccentricity(r,v) 
+    
+        #Calculating the period of the orbit
+        T = self.period(h, e)
+
+        #Calculating the mean_anomaly
+        M_e = 2 * pi * time / T
+
+        #kepler's equation
+        kep_E = lambda E : E - e * sin(E) - M_e
+
+        #Inital guess for the solution of kepler's equation
+        inital_guess = M_e + e/2 if M_e < pi else M_e - e/2
+
+        #Solving the kepler's equation and finding the eccentric anomaly
+        E = fsolve(kep_E, inital_guess)[0]
+
+        #Finding the true_anomaly
+        true_anomaly = 2 * atan( sqrt((1+e)/(1-e)) * tan(E/2))
+
+        #Adding 2pi to the true_anomaly if it is negative
+        true_anomaly = true_anomaly if true_anomaly > 0 else true_anomaly + 2 * pi
+
+        return true_anomaly, E, M_e
+
+
+    #✅Calculates the period of an orbit
+    def period(self, h, e):
+        "Calculates the priod of an orbit from true specific angular momentum and eccentricity"
+        
+        #For open orbits T=inf
+        if e >= 1:
+            return float('inf')
+
+        #For closed orbits:
+        #Semi-major axis
+        a = self.semi_major_axis(h,e)
+
+        #Calculating the period
+        T =  (2 * pi/sqrt(self.mu)) * self.semi_major_axis(h,e)**1.5
+
+        return T
+
+
+    #✅Calculating the semi_major_axis of the orbit "a"
+    def semi_major_axis(self, h, e):
+        "Calculates the semi major axis of the orbit for any orbit-type"
+
+        #Parabolic orbit -> a:undefined
+        if e == 1:
+            raise Exception("🚀Sorry for the parabolic orbits the semi-major axis is undefined🚀")
+        
+        #For any other orbit
+        a =  ((h ** 2)/(self.mu)) * (1/abs( 1 - e**2))
+
+        return a 
+
+
+
+    
 
     
 
@@ -167,7 +291,7 @@ class OrbitVisualizer():
         return ['#'+''.join(random.sample(chars,6)) for i in range(num)]
 
     #The multiple visualizer
-    def simpleStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]]), line_width = 4):
+    def simpleStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbit in static form. No animation"
         # Create figure
         fig = go.Figure()
@@ -215,7 +339,7 @@ class OrbitVisualizer():
             fig.add_trace(go.Scatter3d(
                 x=orbit[:, 0], y=orbit[:, 1], z=orbit[:, 2],
                 mode="lines",
-                line=dict(color=colors[ind], width=line_width),
+                line=dict(color=colors[ind], width=2),
                 name=names[ind]
             ))
 
@@ -246,7 +370,7 @@ class OrbitVisualizer():
         # Show plot
         fig.show()
 
-    def EarthStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]]) , line_width = 4):
+    def EarthStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbit and the earth with countries borders"
         # Create figure
         fig = go.Figure()
@@ -295,7 +419,7 @@ class OrbitVisualizer():
             fig.add_trace(go.Scatter3d(
                 x=orbit[:, 0], y=orbit[:, 1], z=orbit[:, 2],
                 mode="lines",
-                line=dict(color=colors[ind], width= line_width),
+                line=dict(color=colors[ind], width=2),
                 name=names[ind]
             ))
 
@@ -349,7 +473,7 @@ class OrbitVisualizer():
 
 
 
-    def SimpleDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]]), line_width = 4):
+    def SimpleDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbital motion with animation"
 
         # Create figure
@@ -401,7 +525,7 @@ class OrbitVisualizer():
             fig.add_trace(go.Scatter3d(
                 x=[], y=[], z=[],  # Start with an empty orbit
                 mode="lines",
-                line=dict(color="white", width=line_width ),
+                line=dict(color="white", width=2),
                 name= names[i]
             ))
 
@@ -470,7 +594,7 @@ class OrbitVisualizer():
         fig.show()
 
 
-    def EarthDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]]) , line_width = 4):
+    def EarthDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbital motion with animation"
 
         # Get country borders from Natural Earth (GeoJSON)
@@ -525,7 +649,7 @@ class OrbitVisualizer():
             fig.add_trace(go.Scatter3d(
                 x=[], y=[], z=[],  # Start with an empty orbit
                 mode="lines",
-                line=dict(color="white", width= line_width ),
+                line=dict(color="white", width=2),
                 name= names[i]
             ))
 
