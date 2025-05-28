@@ -280,9 +280,57 @@ class Orbit_2body():
         return a 
 
 
+    #Converting the classical orbital elements to state sapce 
+    def keplerian_to_cartesian(self, e, h, theta, i, RAAN, w, degree_mode=False):
+        '''
+        Converting the classical orbital elements to cartesian coordinates(Position vector and velocity vector)
+        Parameters:\n
+            e: (float) Eccentricity 
+            h: (float) Specific angular momentum
+            theta : (float) True anomaly in radians
+            i : (float) inclination in radians
+            w : (float) Argument of preiapsis in radians 
+            degree_mode: (bool) if equal to true the i, w, RAAN and theta should be given in degrees
 
-    
+        Returns:\n
+            r: (np.array([rx, ry, rz])) position vector in ECI in [km]
+            v: (np.array([vx, vy, vz])) velocity vector in ECI in [km]
+        '''
 
+        #Check if the angles are in radians or not
+        if degree_mode:
+            theta = theta * pi / 180
+            w = w * pi / 180
+            i = i * pi / 180
+            RAAN = RAAN * pi / 180
+
+        #Calculating the r and v in perifocal frame
+        r_x_perifocal = (h**2/self.mu) * (1/(1+e*cos(theta))) * cos(theta)
+        r_y_perifocal = (h**2/self.mu) * (1/(1+e*cos(theta))) * sin(theta)
+        r_z_perifocal = 0                                                  #Becuase of how the perifocal frame is definded
+
+        v_x_perifocal = (self.mu/h) * (-1) * sin(theta)
+        v_y_perifocal = (self.mu/h) * (e + cos(theta))
+        v_z_perifocal = 0                                                  #Becuase of how the perifocal frame is definded
+
+        #setting up the vector
+        r_perifocal = np.array([r_x_perifocal, r_y_perifocal, r_z_perifocal])
+        v_perifocal = np.array([v_x_perifocal, v_y_perifocal, v_z_perifocal])
+        
+
+        #Perifcoal --> ECI transfer matric (Direction cosine matrix)
+        DCM_perifocal_to_ECI = np.array([
+            [-sin(RAAN)*cos(i)*sin(w)+cos(RAAN)*cos(w), -sin(RAAN)*cos(i)*cos(w)-cos(RAAN)*sin(w), sin(RAAN)*sin(i)],
+            [cos(RAAN)*cos(i)*sin(w)+sin(RAAN)*cos(w), cos(RAAN)*cos(i)*cos(w)-sin(RAAN)*sin(w), -cos(RAAN)*sin(i)],
+            [sin(i)*sin(w) , sin(i)*cos(w), cos(i)]
+            ])
+        
+        #Coordiante transformation for position and velocity vector from perifocal to ECI(earth centerd interia)
+        r_ECI = np.matmul(DCM_perifocal_to_ECI, r_perifocal)
+        v_ECI = np.matmul(DCM_perifocal_to_ECI, v_perifocal)
+
+        #Returning the r and v vector in the ECI frame (Coordinate)
+        return r_ECI , v_ECI
     
 
 class OrbitVisualizer():
