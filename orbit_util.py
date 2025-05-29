@@ -5,7 +5,8 @@ from scipy.optimize  import fsolve
 import plotly.graph_objects as go
 import requests
 import random
-from math import sin, cos, pi, atan2, sqrt, atan, tan, acos
+from math import sin, cos, pi, atan2, sqrt, atan, tan, acos, floor
+from datetime import datetime, timezone
 
 
 #The orbit propagetor
@@ -349,13 +350,13 @@ class Orbit_2body():
         N_vec = np.cross([0,0,1] , h_vector)
         N_mag = np.linalg.norm(N_vec)
 
-        # #💫Determining the RAAN
+        #💫Determining the RAAN
         RAAN = acos(N_vec[0]/N_mag) if N_vec[1] >= 0 else 2*pi - acos(N_vec[0]/N_mag) 
 
-        # #💫Determining the argument of preiapsis w
+        #💫Determining the argument of preiapsis w
         w = acos(np.dot(N_vec, e_vec)/(N_mag * e)) if e_vec[2] >=0 else 2*pi - acos(np.dot(N_vec, e_vec)/(N_mag * e))
 
-        # #💫Determining the true anomaly
+        #💫Determining the true anomaly
         theta = acos(np.dot(e_vec,r)/(e * r_mag)) if v_r >= 0 else 2*pi - acos(np.dot(e_vec,r)/(e * r_mag))
 
         #Chekc if degree mode is active
@@ -431,6 +432,58 @@ class Orbit_2body():
         #Returning the r and v vector in the ECI frame (Coordinate)
         return r_ECI , v_ECI
     
+
+    def UTC_to_julian(self, dt):
+        """
+        Convert a datetime.datetime object (UTC) to Julian Date (JD) using the standard formula.
+        
+        Args:
+            dt (datetime.datetime): UTC datetime object
+            
+        Returns:
+            float: Julian Date (JD)
+            
+        Formula:
+            JD = 367*Y - INT(7*(Y + INT((M+9)/12))/4) 
+                + INT(275*M/9) + D + 1721013.5 
+                + (H + Min/60 + Sec/3600)/24
+        """
+        Y = dt.year
+        M = dt.month
+        D = dt.day
+        H = dt.hour
+        Min = dt.minute
+        Sec = dt.second + dt.microsecond/1e6  # Include microseconds
+        
+        # Calculate Julian Date
+        term1 = 367 * Y
+        term2 = floor((7 * (Y + floor((M + 9)/12)))/4)
+        term3 = floor(275 * M / 9)
+        term4 = D + 1721013.5
+        term5 = (H + Min/60 + Sec/3600)/24
+        
+        JD = term1 - term2 + term3 + term4 + term5
+        
+        return JD
+
+
+
+        #Saving an orbit as SPK: spk is the offical format for SPICE enhanced COSMOGRAPHIA
+        # def save_spk(self, r, t, ScenarioEpoch =  , file_name="orbit.e", start_time="Now", time="JULIAN_DATE"):
+        #     '''
+        #     Will save the orbit as an ephermeris and can be used along
+        #         Parameters:\n
+        #         r: (np.arr) The trajectory 
+        #         t: (np.arr) time since the start of simulation 
+        #         ScenarioEpoch : (float) True anomaly in radians
+        #         i : (float) inclination in radians
+        #         w : (float) Argument of preiapsis in radians 
+        #         degree_mode: (bool) if equal to true the i, w, RAAN and theta should be given in degrees
+
+        #     '''
+    
+        # return None 
+
 
     
 
