@@ -195,16 +195,21 @@ class Orbit_2body():
 
     
     #Finding the change in true anomaly with time
-    def time_since_perigee(self ,true_anomaly, r=None, v=None, h=None, e=None):
+    def time_since_perigee(self ,true_anomaly, r=None, v=None, h=None, e=None, degree_mode=False):
         """
         Calculates the time required to get from the preigee to the specified true anomaly.\n
         Parameters:\n
             If h and e are known provide them otherwise provide r and v (true_anomaly must be in radians)\n
+            degree_mode : (bool) Set equal to true and the true_anomaly will be assumed to be in degrees \n
         Returns:\n
             time: Seconds\n 
             error : Estimated absolute error
 
         """
+
+        #Check to see if the degree mode is beening used
+        if degree_mode:
+            true_anomaly = true_anomaly * pi / 180
 
         #Calcualting the neccessary variables(If not provided)
         if h == None:
@@ -220,11 +225,12 @@ class Orbit_2body():
         return time ,err
     
     #Calculating the true anomaly of the satellite from the time since preigee
-    def true_anomaly_from_time(self, time, h=None ,e=None ,r=None , v=None):
+    def true_anomaly_from_time(self, time, h=None ,e=None ,r=None , v=None, degree_mode=False):
         """
         Calculates the true anomaly of satellite from the time since preigee.\n
         Parameters:\n
             If h and e are known provide them otherwise provide r and v (time is the time from preigee in seconds)\n
+            degree_mode : (bool) Set equal to true and the true_anomaly, eccentric_anomaly and mean_anomaly will be in degrees \n
         Returns:\n
             true_anomaly: (float) in radians
             eccentric_anomaly: (flot)
@@ -257,6 +263,12 @@ class Orbit_2body():
 
         #Adding 2pi to the true_anomaly if it is negative
         true_anomaly = true_anomaly if true_anomaly > 0 else true_anomaly + 2 * pi
+
+        #Check if the degree mode is enabled
+        if degree_mode:
+            true_anomaly = true_anomaly * 180 / pi
+            E = E * 180 / pi
+            M_e = M_e * 180 / pi
 
         return true_anomaly, E, M_e
 
@@ -353,11 +365,6 @@ class Orbit_2body():
 
         # #Returning the elements
         # return e , h_mag, theta, i, w, RAAN 
-
-
-
-
-
 
 
     #Converting the classical orbital element to state sapce 
