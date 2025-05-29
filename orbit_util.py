@@ -5,7 +5,7 @@ from scipy.optimize  import fsolve
 import plotly.graph_objects as go
 import requests
 import random
-from math import sin, cos, pi, atan2, sqrt, atan, tan
+from math import sin, cos, pi, atan2, sqrt, atan, tan, acos
 
 
 #The orbit propagetor
@@ -160,44 +160,62 @@ class Orbit_2body():
         elif energy > 0 :
             return "hyperbolic"
         
-
-    #Calculating the eccentricity base on the position and velocity vector
+    
+    #✅Calculating the eccentricity vector and magnitude
     def eccentricity(self, r, v):
-        "Calculating the e using the energy equation"
+        """
+        Calculating the e vector and magnitude using r and v
+        Parameters:\n
+            r: (np.array([rx, ry, rz])) position vector in ECI in [km]
+            v: (np.array([vx, vy, vz])) velocity vector in ECI in [km]
 
-        #Converting the r and v into numpy array
+        Returns:\n
+            e_vec: (np.array([ex, ey, ez])) Eccentricity vector
+            e_mag: (float) Magnitude of the eccentricity vector
+        """
+
+        #Conversion to array
         r = np.array(r)
         v = np.array(v)
-        
-        #Energy of the orbit
-        epsillon = self.energy(r,v)
 
-        #specific angular momentum
-        _, h =self.specific_angular_momentum(r=r, v=v)
+        #Magnitude of r and v
+        r_mag = np.linalg.norm(r)
+        v_mag = np.linalg.norm(v)
 
-        #Formula to calcualte the eccentricty:
-        # epsillon = -0.5 * (mu/h)^2 * (1-e^2) => e = sqrt(2*(h/mu)**2 * eps + 1)
-        e = sqrt(2 * epsillon * h **2 / self.mu ** 2 + 1)
+        #Radial velocity
+        v_r = np.dot(r, v) / np.linalg.norm(r)
 
-        return e
+        #Using the orbit equation(differential equation)
+        e_vec = (1/self.mu)*((v_mag**2 - (self.mu/r_mag))*r - r_mag * v_r * v)
+
+        #Magnitude of e
+        e_mag = np.linalg.norm(e_vec)
+
+        return e_vec, e_mag
+
     
     #Finding the change in true anomaly with time
-    def time_since_perigee(self ,true_anomaly, r=None, v=None, h=None, e=None):
+    def time_since_perigee(self ,true_anomaly, r=None, v=None, h=None, e=None, degree_mode=False):
         """
         Calculates the time required to get from the preigee to the specified true anomaly.\n
         Parameters:\n
             If h and e are known provide them otherwise provide r and v (true_anomaly must be in radians)\n
+            degree_mode : (bool) Set equal to true and the true_anomaly will be assumed to be in degrees \n
         Returns:\n
             time: Seconds\n 
             error : Estimated absolute error
 
         """
 
+        #Check to see if the degree mode is beening used
+        if degree_mode:
+            true_anomaly = true_anomaly * pi / 180
+
         #Calcualting the neccessary variables(If not provided)
         if h == None:
             h = self.specific_angular_momentum(r,v)
         if e == None:
-            e = self.eccentricity(r,v) 
+            _ , e = self.eccentricity(r,v) 
 
         #Integrating the general formula -> Is valid for all orbit types
         f_t = lambda theta: (h**3 / self.mu ** 2) * 1/(1+e * np.cos(theta))**2
@@ -207,11 +225,12 @@ class Orbit_2body():
         return time ,err
     
     #Calculating the true anomaly of the satellite from the time since preigee
-    def true_anomaly_from_time(self, time, h=None ,e=None ,r=None , v=None):
+    def true_anomaly_from_time(self, time, h=None ,e=None ,r=None , v=None, degree_mode=False):
         """
         Calculates the true anomaly of satellite from the time since preigee.\n
         Parameters:\n
             If h and e are known provide them otherwise provide r and v (time is the time from preigee in seconds)\n
+            degree_mode : (bool) Set equal to true and the true_anomaly, eccentric_anomaly and mean_anomaly will be in degrees \n
         Returns:\n
             true_anomaly: (float) in radians
             eccentric_anomaly: (flot)
@@ -222,7 +241,7 @@ class Orbit_2body():
         if h == None:
             h = self.specific_angular_momentum(r,v)
         if e == None:
-            e = self.eccentricity(r,v) 
+            _ , e = self.eccentricity(r,v) 
     
         #Calculating the period of the orbit
         T = self.period(h, e)
@@ -244,6 +263,12 @@ class Orbit_2body():
 
         #Adding 2pi to the true_anomaly if it is negative
         true_anomaly = true_anomaly if true_anomaly > 0 else true_anomaly + 2 * pi
+
+        #Check if the degree mode is enabled
+        if degree_mode:
+            true_anomaly = true_anomaly * 180 / pi
+            E = E * 180 / pi
+            M_e = M_e * 180 / pi
 
         return true_anomaly, E, M_e
 
@@ -279,8 +304,132 @@ class Orbit_2body():
 
         return a 
 
+    #Converting the Cartesian element to classical orbital elements
+    def cartesian_to_keplerain(self, r, v, degree_mode=False):
+        '''
+        Converting the cartesian to classical orbital elements(Position vector and velocity vector) for a single instance\n
+        Parameters:\n
+            r : (np.array([rx, ry, rz])) position vector in ECI in [km]\n
+            v : (np.array([vx, vy, vz])) velocity vector in ECI in [km]\n
+            degree_mode : (bool) if equal to true the i, w, RAAN and theta will be in degrees\n
+
+        Returns:\n
+            dict: A dictionary containing
+                -e : (float) Eccentricity \n
+                -h : (float) Specific angular momentum\n
+                -theta : (float) True anomaly in radians\n
+                -i : (float) inclination in radians\n
+                -w : (float) Argument of preiapsis in radians \n
+                -RAAN : (float) right ascension of ascending node in radians\n
+            
+        '''
+
+        #Converting the r and v to array
+        r = np.array(r)
+        v = np.array(v)
+
+        #Calculating the magnitude of r and v(speed)
+        r_mag = np.linalg.norm(r)
+        v_mag = np.linalg.norm(v)
+
+        #Determining the radial vecloicty
+        v_r = np.dot(r , v) / np.linalg.norm(r)       
+
+        #💫Determining the specific angular momentum
+        h_vector, h_mag = self.specific_angular_momentum(r, v)
+
+        #💫Determining the eccentricity vector and magnitude               
+        e_vec, e = self.eccentricity(r,v)  
+
+    
+        #💫Determining the inclination
+        i = acos(h_vector[2]/h_mag)
+
+        # #Determing the node line vector and magnitude
+        N_vec = np.cross([0,0,1] , h_vector)
+        N_mag = np.linalg.norm(N_vec)
+
+        # #💫Determining the RAAN
+        RAAN = acos(N_vec[0]/N_mag) if N_vec[1] >= 0 else 2*pi - acos(N_vec[0]/N_mag) 
+
+        # #💫Determining the argument of preiapsis w
+        w = acos(np.dot(N_vec, e_vec)/(N_mag * e)) if e_vec[2] >=0 else 2*pi - acos(np.dot(N_vec, e_vec)/(N_mag * e))
+
+        # #💫Determining the true anomaly
+        theta = acos(np.dot(e_vec,r)/(e * r_mag)) if v_r >= 0 else 2*pi - acos(np.dot(e_vec,r)/(e * r_mag))
+
+        #Chekc if degree mode is active
+        if degree_mode:
+            theta = theta * 180 / pi
+            i = i * 180 / pi 
+            RAAN = RAAN * 180 / pi
+            w = w * 180 / pi
+
+        classical_orbital_elements = {
+            "e" : e,
+            "h" : h_mag,
+            "theta" : theta,
+            "i" : i,
+            "w" : w,
+            "RAAN" : RAAN 
+        }
 
 
+        # #Returning the elements
+        return classical_orbital_elements
+
+
+    #Converting the classical orbital element to state sapce 
+    def keplerian_to_cartesian(self, e, h, theta, i, RAAN, w, degree_mode=False):
+        '''
+        Converting the classical orbital elements to cartesian elements(Position vector and velocity vector) for a single instance
+        Parameters:\n
+            e: (float) Eccentricity 
+            h: (float) Specific angular momentum
+            theta : (float) True anomaly in radians
+            i : (float) inclination in radians
+            w : (float) Argument of preiapsis in radians 
+            degree_mode: (bool) if equal to true the i, w, RAAN and theta should be given in degrees
+
+        Returns:\n
+            r: (np.array([rx, ry, rz])) position vector in ECI in [km]
+            v: (np.array([vx, vy, vz])) velocity vector in ECI in [km]
+        '''
+
+        #Check if the angles are in radians or not
+        if degree_mode:
+            theta = theta * pi / 180
+            w = w * pi / 180
+            i = i * pi / 180
+            RAAN = RAAN * pi / 180
+
+        #Calculating the r and v in perifocal frame
+        r_x_perifocal = (h**2/self.mu) * (1/(1+e*cos(theta))) * cos(theta)
+        r_y_perifocal = (h**2/self.mu) * (1/(1+e*cos(theta))) * sin(theta)
+        r_z_perifocal = 0                                                  #Becuase of how the perifocal frame is definded
+
+        v_x_perifocal = (self.mu/h) * (-1) * sin(theta)
+        v_y_perifocal = (self.mu/h) * (e + cos(theta))
+        v_z_perifocal = 0                                                  #Becuase of how the perifocal frame is definded
+
+        #setting up the vector
+        r_perifocal = np.array([r_x_perifocal, r_y_perifocal, r_z_perifocal])
+        v_perifocal = np.array([v_x_perifocal, v_y_perifocal, v_z_perifocal])
+        
+
+        #Perifcoal --> ECI transfer matric (Direction cosine matrix)
+        DCM_perifocal_to_ECI = np.array([
+            [-sin(RAAN)*cos(i)*sin(w)+cos(RAAN)*cos(w), -sin(RAAN)*cos(i)*cos(w)-cos(RAAN)*sin(w), sin(RAAN)*sin(i)],
+            [cos(RAAN)*cos(i)*sin(w)+sin(RAAN)*cos(w), cos(RAAN)*cos(i)*cos(w)-sin(RAAN)*sin(w), -cos(RAAN)*sin(i)],
+            [sin(i)*sin(w) , sin(i)*cos(w), cos(i)]
+            ])
+        
+        #Coordiante transformation for position and velocity vector from perifocal to ECI(earth centerd interia)
+        r_ECI = np.matmul(DCM_perifocal_to_ECI, r_perifocal)
+        v_ECI = np.matmul(DCM_perifocal_to_ECI, v_perifocal)
+
+        #Returning the r and v vector in the ECI frame (Coordinate)
+        return r_ECI , v_ECI
     
 
     
