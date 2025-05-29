@@ -507,22 +507,43 @@ class Orbit_2body():
     
         # Format with 15 decimal places (corrected string formatting)
         return f"{dt_utc.strftime('%y')}{ddd}.{fraction:.15f}".split('.')[0][:5] + '.' + f"{fraction:.15f}".split('.')[1]
-
-        #Saving an orbit as SPK: spk is the offical format for SPICE enhanced COSMOGRAPHIA
-        # def save_spk(self, r, t, ScenarioEpoch =  , file_name="orbit.e", start_time="Now", time="JULIAN_DATE"):
-        #     '''
-        #     Will save the orbit as an ephermeris and can be used along
-        #         Parameters:\n
-        #         r: (np.arr) The trajectory 
-        #         t: (np.arr) time since the start of simulation 
-        #         ScenarioEpoch : (float) True anomaly in radians
-        #         i : (float) inclination in radians
-        #         w : (float) Argument of preiapsis in radians 
-        #         degree_mode: (bool) if equal to true the i, w, RAAN and theta should be given in degrees
-
-        #     '''
     
-        # return None 
+    #Formating the UTC time 
+    def format_utc(self, dt: datetime):
+        """
+        Format a datetime object into a precise string representation.
+        
+        Args:
+            dt: datetime object (naive or timezone-aware)
+            
+        Returns:
+            str: Formatted string like '19 May 2025 08:30:00.000000'
+        """
+        # Cross-platform day formatting (no leading zero)
+        day = str(dt.day)
+        # Format the rest of the string
+        return f"{day} {dt.strftime('%B %Y %H:%M:%S.%f')}"
+
+    #Saving an orbit as SPK: spk is the offical format for SPICE enhanced COSMOGRAPHIA
+    def save_spk(self, r, v, t, scenario_epoch = datetime.now(timezone.utc), interpolation_method = "Lagrange", InterpolationSamplesM1 = 7, CentralBody = "Earth", file_name="orbit.e"):
+        '''
+        Will save the orbit as an ephermeris and can be used with STK
+            Parameters:\n
+                r: (np.arr) The trajectory 
+                v: (np.arr) The velocity 
+                t: (np.arr) Time since the start of simulation 
+                ScenarioEpoch : (datetime) Time of the start of simulation in UTC 
+                interpolation_method : (str) interpolation method used in the STK
+                InterpolationSamplesM1 : (int)  number of data points used for interpolation. 
+                CentralBody : (str) central body of the simulation
+                CoordinateSystem : (str) coordinate system used for describing r and v
+                file_name : (str) the name/directory in which the file we saved at
+
+        '''
+        
+
+
+        return None 
 
 
     
