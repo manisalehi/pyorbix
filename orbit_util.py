@@ -160,29 +160,9 @@ class Orbit_2body():
         elif energy > 0 :
             return "hyperbolic"
         
-
-    #Calculating the eccentricity base on the position and velocity vector
-    def eccentricity(self, r, v):
-        "Calculating the e using the energy equation."
-
-        #Converting the r and v into numpy array
-        r = np.array(r)
-        v = np.array(v)
-        
-        #Energy of the orbit
-        epsillon = self.energy(r,v)
-
-        #specific angular momentum
-        _, h =self.specific_angular_momentum(r=r, v=v)
-
-        #Formula to calcualte the eccentricty:
-        # epsillon = -0.5 * (mu/h)^2 * (1-e^2) => e = sqrt(2*(h/mu)**2 * eps + 1)
-        e = sqrt(2 * epsillon * h **2 / self.mu ** 2 + 1)
-
-        return e
     
     #✅Calculating the eccentricity vector and magnitude
-    def eccentricity_vector(self, r, v):
+    def eccentricity(self, r, v):
         """
         Calculating the e vector and magnitude using r and v
         Parameters:\n
@@ -203,7 +183,7 @@ class Orbit_2body():
         v_mag = np.linalg.norm(v)
 
         #Radial velocity
-        v_r = np.dot(r, v)
+        v_r = np.dot(r, v) / np.linalg.norm(r)
 
         #Using the orbit equation(differential equation)
         e_vec = (1/self.mu)*((v_mag**2 - (self.mu/r_mag))*r - r_mag * v_r * v)
@@ -230,7 +210,7 @@ class Orbit_2body():
         if h == None:
             h = self.specific_angular_momentum(r,v)
         if e == None:
-            e = self.eccentricity(r,v) 
+            _ , e = self.eccentricity(r,v) 
 
         #Integrating the general formula -> Is valid for all orbit types
         f_t = lambda theta: (h**3 / self.mu ** 2) * 1/(1+e * np.cos(theta))**2
@@ -255,7 +235,7 @@ class Orbit_2body():
         if h == None:
             h = self.specific_angular_momentum(r,v)
         if e == None:
-            e = self.eccentricity(r,v) 
+            _ , e = self.eccentricity(r,v) 
     
         #Calculating the period of the orbit
         T = self.period(h, e)
@@ -346,9 +326,9 @@ class Orbit_2body():
         h_vector, h_mag = self.specific_angular_momentum(r, v)
 
         #💫Determining the eccentricity vector and magnitude               
-        e_vec, e = self.eccentricity_vector(r,v)  
+        e_vec, e = self.eccentricity(r,v)  
 
-        return e_vec
+        return e_vec, e
         #💫Determining the inclination
         # i = acos(h_vector[2]/h_mag)
 
