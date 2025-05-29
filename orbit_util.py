@@ -307,19 +307,20 @@ class Orbit_2body():
     #Converting the Cartesian element to classical orbital elements
     def cartesian_to_keplerain(self, r, v, degree_mode=False):
         '''
-        Converting the cartesian to classical orbital elements(Position vector and velocity vector) for a single instance
+        Converting the cartesian to classical orbital elements(Position vector and velocity vector) for a single instance\n
         Parameters:\n
-            r: (np.array([rx, ry, rz])) position vector in ECI in [km]
-            v: (np.array([vx, vy, vz])) velocity vector in ECI in [km]
-            degree_mode: (bool) if equal to true the i, w, RAAN and theta should be given in degrees
+            r : (np.array([rx, ry, rz])) position vector in ECI in [km]\n
+            v : (np.array([vx, vy, vz])) velocity vector in ECI in [km]\n
+            degree_mode : (bool) if equal to true the i, w, RAAN and theta will be in degrees\n
 
         Returns:\n
-            e: (float) Eccentricity 
-            h: (float) Specific angular momentum
-            theta : (float) True anomaly in radians
-            i : (float) inclination in radians
-            w : (float) Argument of preiapsis in radians 
-            RAAN : (float) right ascension of ascending node in radians
+            dict: A dictionary containing
+                -e : (float) Eccentricity \n
+                -h : (float) Specific angular momentum\n
+                -theta : (float) True anomaly in radians\n
+                -i : (float) inclination in radians\n
+                -w : (float) Argument of preiapsis in radians \n
+                -RAAN : (float) right ascension of ascending node in radians\n
             
         '''
 
@@ -332,7 +333,7 @@ class Orbit_2body():
         v_mag = np.linalg.norm(v)
 
         #Determining the radial vecloicty
-        v_r = np.dot(r , v)         
+        v_r = np.dot(r , v) / np.linalg.norm(r)       
 
         #💫Determining the specific angular momentum
         h_vector, h_mag = self.specific_angular_momentum(r, v)
@@ -340,31 +341,42 @@ class Orbit_2body():
         #💫Determining the eccentricity vector and magnitude               
         e_vec, e = self.eccentricity(r,v)  
 
-        return e_vec, e
+    
         #💫Determining the inclination
-        # i = acos(h_vector[2]/h_mag)
+        i = acos(h_vector[2]/h_mag)
 
         # #Determing the node line vector and magnitude
-        # N_vec = np.cross([0,0,1] , h_vector)
-        # N_mag = np.linalg.norm(N_vec)
+        N_vec = np.cross([0,0,1] , h_vector)
+        N_mag = np.linalg.norm(N_vec)
 
         # #💫Determining the RAAN
-        # RAAN = acos(N_vec[0]/N_mag) if N_vec[1] >= 0 else 2*pi - acos(N_vec[0]/N_mag) 
+        RAAN = acos(N_vec[0]/N_mag) if N_vec[1] >= 0 else 2*pi - acos(N_vec[0]/N_mag) 
 
         # #💫Determining the argument of preiapsis w
-        # w = acos(np.dot(N_vec, e_vec)/(N_mag * e)) if e_vec[2] >=0 else 2*pi - acos(np.dot(N_vec, e_vec)/(N_mag * e))
+        w = acos(np.dot(N_vec, e_vec)/(N_mag * e)) if e_vec[2] >=0 else 2*pi - acos(np.dot(N_vec, e_vec)/(N_mag * e))
 
         # #💫Determining the true anomaly
-        # theta = acos(np.dot(e_vec,r)/(e * r_mag)) if v_r >= 0 else 2*pi - acos(np.dot(e_vec,r)/(e * r_mag))
+        theta = acos(np.dot(e_vec,r)/(e * r_mag)) if v_r >= 0 else 2*pi - acos(np.dot(e_vec,r)/(e * r_mag))
 
-        # if degree_mode:
-        #     theta = theta * 180 / pi
-        #     i = i * 180 / pi 
-        #     RAAN = RAAN * 180 / pi
-        #     w = w * 180 / pi
+        #Chekc if degree mode is active
+        if degree_mode:
+            theta = theta * 180 / pi
+            i = i * 180 / pi 
+            RAAN = RAAN * 180 / pi
+            w = w * 180 / pi
+
+        classical_orbital_elements = {
+            "e" : e,
+            "h" : h_mag,
+            "theta" : theta,
+            "i" : i,
+            "w" : w,
+            "RAAN" : RAAN 
+        }
+
 
         # #Returning the elements
-        # return e , h_mag, theta, i, w, RAAN 
+        return classical_orbital_elements
 
 
     #Converting the classical orbital element to state sapce 
