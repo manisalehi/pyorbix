@@ -432,7 +432,7 @@ class Orbit_2body():
         #Returning the r and v vector in the ECI frame (Coordinate)
         return r_ECI , v_ECI
     
-
+    #Instance of what the input should look like sim = datetime(year = 2025, month = 5, day = 19, hour = 8, minute = 20 , second = 0)
     def UTC_to_julian(self, dt):
         """
         Convert a datetime.datetime object (UTC) to Julian Date (JD) using the standard formula.
@@ -448,6 +448,11 @@ class Orbit_2body():
                 + INT(275*M/9) + D + 1721013.5 
                 + (H + Min/60 + Sec/3600)/24
         """
+
+        # Validate timezone
+        if dt.tzinfo is not None and dt.tzinfo != timezone.utc:
+            raise ValueError("Input datetime must be either naive or explicitly UTC")
+
         Y = dt.year
         M = dt.month
         D = dt.day
@@ -465,8 +470,43 @@ class Orbit_2body():
         JD = term1 - term2 + term3 + term4 + term5
         
         return JD
-
-
+    
+    #Converting the UTC to the YYDDD format 
+    def UTC_to_YYDDD(self, dt_utc: datetime) -> str:
+        """
+        Convert UTC datetime to YYDDD.xxxxxxxxxxxxxxx format (15 decimal places).
+        
+        Args:
+            dt_utc: timezone-naive (assumed UTC) or timezone-aware UTC datetime
+            
+        Returns:
+            str: Formatted string like '25139.354166666666667' where:
+                - 25: Last two digits of year
+                - 139: Day of year (001-366)
+                - .354166666666667: Fraction of day (08:30:00 = 0.354166...)
+        
+        Raises:
+            ValueError: If input has non-UTC timezone
+        """
+        # Validate timezone
+        if dt_utc.tzinfo is not None and dt_utc.tzinfo != timezone.utc:
+            raise ValueError("Input datetime must be either naive or explicitly UTC")
+        
+        # Calculate day of year (001-366)
+        day_of_year = dt_utc.timetuple().tm_yday
+        ddd = f"{day_of_year:03d}"
+        
+        # Calculate fraction of day with microsecond precision
+        total_seconds = (
+            dt_utc.hour * 3600 + 
+            dt_utc.minute * 60 + 
+            dt_utc.second + 
+            dt_utc.microsecond / 1e6
+        )
+        fraction = total_seconds / 86400  # Fraction of day
+    
+        # Format with 15 decimal places (corrected string formatting)
+        return f"{dt_utc.strftime('%y')}{ddd}.{fraction:.15f}".split('.')[0][:5] + '.' + f"{fraction:.15f}".split('.')[1]
 
         #Saving an orbit as SPK: spk is the offical format for SPICE enhanced COSMOGRAPHIA
         # def save_spk(self, r, t, ScenarioEpoch =  , file_name="orbit.e", start_time="Now", time="JULIAN_DATE"):
