@@ -7,6 +7,10 @@ import requests
 import random
 from math import sin, cos, pi, atan2, sqrt, atan, tan, acos, floor
 from datetime import datetime, timezone
+import spiceypy as spice
+import os
+import sys
+
 
 
 #The orbit propagetor
@@ -615,7 +619,99 @@ CoordinateSystem        {coordinate_system}
             f.write(head + body)
 
         return  "Ephermeris saved at:" + file_name + ".e"
+    
 
+    #Saving the orbit with the spk format .bsp (Used by SPCIE kernels)
+    def save_to_spk(self, r_vectors, v_vectors, time, output_file="orbit", kernel_list=["naif0012.tls", "pck00010.tpc"], kernel_base_dir="./kernels"):
+        """
+        Save orbit data to SPK (.bsp) file
+
+        Args:
+            r_vectors: Nx3 array of position vectors (km)
+            v_vectors: Nx3 array of velocity vectors (km/s)
+            time: Array of Julian dates
+            output_file: Output SPK file path
+            kernel_list: Array of kernels that have to be loaded
+            kernel_base_dir : The folder in which the kernels are saved
+        """
+        #Delete the file if already exist
+        file_path = output_file+".bsp"
+        try:
+            # Check if file exists first
+            if not os.path.exists(file_path):
+                print(f"Error: File '{file_path}' does not exist", file=sys.stderr)
+            
+            
+            # Verify it's actually a file (not a directory)
+            if not os.path.isfile(file_path):
+                print(f"Error: '{file_path}' is not a file", file=sys.stderr)
+            
+            
+            # Remove the file
+            os.remove(file_path)
+        
+            # Verify deletion
+            if os.path.exists(file_path):
+                print(f"Error: Failed to delete '{file_path}'", file=sys.stderr)
+            
+            
+            print(f"Successfully deleted '{file_path}'")
+        
+        
+        except PermissionError:
+            print(f"Error: Permission denied when deleting '{file_path}'", file=sys.stderr)
+        except Exception as e:
+            print(f"Error deleting file: {str(e)}", file=sys.stderr)
+
+        # Load essential kernels (adjust paths as needed)
+        for kernel in kernel_list:
+            spice.furnsh(kernel_base_dir+"/"+kernel)
+
+            #Success message
+            print(kernel_base_dir+"/"+kernel + " was loaded succefully")
+            
+        # spice.furnsh("./kernels/naif0012.tls")  # Leap seconds
+        # spice.furnsh("./kernels/pck00010.tpc")  # Planetary constants
+        
+        # Create SPK file
+        handle = spice.spkopn(output_file+".bsp", "SAT_ORBIT_SPK", 0)
+    
+        # SPK parameters
+        body_id = -999  # Negative ID for custom spacecraft
+        center_id = 399  # Earth center
+        frame = "J2000"  # SPCIE does not support ECI but the earth centered ICRF is the same as ECI J2000
+    
+        # Convert Julian dates to ET
+        et_times = np.array([self.jd_to_et(jd) for jd in time])
+        
+        # Combine position and velocity
+        states = np.hstack((r_vectors, v_vectors))
+
+         # Write SPK segment (Type 9 - Lagrange interpolation)
+        spice.spkw09(
+            handle,
+            body_id,
+            center_id,
+            frame,
+            et_times[0],       # First epoch
+            et_times[-1],      # Last epoch
+            "SAT_ORBIT_DATA",  # Segment identifier
+            7,                 # Degree of interpolation (8 points)
+            len(et_times),     # Number of states
+            states,         # state vectors (Postion + Velocity)
+            et_times,          # Epochs
+        )
+
+        # Cleanup
+        spice.spkcls(handle)
+        spice.kclear()
+        return f"Saved SPK file to {output_file}"
+
+    
+    #Converting the julian date to SPICE ephermeris date 
+    def jd_to_et(self, julian_date):
+        """Convert Julian Date to SPICE ephemeris time (TDB)"""
+        return (julian_date - 2451545.0) * 86400.0  # Convert JD to seconds past J2000
 
     
 
