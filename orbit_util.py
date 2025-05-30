@@ -5,7 +5,8 @@ from scipy.optimize  import fsolve
 import plotly.graph_objects as go
 import requests
 import random
-from math import sin, cos, pi, atan2, sqrt, atan, tan, acos
+from math import sin, cos, pi, atan2, sqrt, atan, tan, acos, floor
+from datetime import datetime, timezone
 
 
 #The orbit propagetor
@@ -349,13 +350,13 @@ class Orbit_2body():
         N_vec = np.cross([0,0,1] , h_vector)
         N_mag = np.linalg.norm(N_vec)
 
-        # #💫Determining the RAAN
+        #💫Determining the RAAN
         RAAN = acos(N_vec[0]/N_mag) if N_vec[1] >= 0 else 2*pi - acos(N_vec[0]/N_mag) 
 
-        # #💫Determining the argument of preiapsis w
+        #💫Determining the argument of preiapsis w
         w = acos(np.dot(N_vec, e_vec)/(N_mag * e)) if e_vec[2] >=0 else 2*pi - acos(np.dot(N_vec, e_vec)/(N_mag * e))
 
-        # #💫Determining the true anomaly
+        #💫Determining the true anomaly
         theta = acos(np.dot(e_vec,r)/(e * r_mag)) if v_r >= 0 else 2*pi - acos(np.dot(e_vec,r)/(e * r_mag))
 
         #Chekc if degree mode is active
@@ -431,6 +432,190 @@ class Orbit_2body():
         #Returning the r and v vector in the ECI frame (Coordinate)
         return r_ECI , v_ECI
     
+    #Instance of what the input should look like sim = datetime(year = 2025, month = 5, day = 19, hour = 8, minute = 20 , second = 0)
+    def UTC_to_julian(self, dt):
+        """
+        Convert a datetime.datetime object (UTC) to Julian Date (JD) using the standard formula.
+        
+        Args:
+            dt (datetime.datetime): UTC datetime object
+            
+        Returns:
+            float: Julian Date (JD)
+            
+        Formula:
+            JD = 367*Y - INT(7*(Y + INT((M+9)/12))/4) 
+                + INT(275*M/9) + D + 1721013.5 
+                + (H + Min/60 + Sec/3600)/24
+        """
+
+        # Validate timezone
+        if dt.tzinfo is not None and dt.tzinfo != timezone.utc:
+            raise ValueError("Input datetime must be either naive or explicitly UTC")
+
+        Y = dt.year
+        M = dt.month
+        D = dt.day
+        H = dt.hour
+        Min = dt.minute
+        Sec = dt.second + dt.microsecond/1e14  # Include microseconds
+        
+        # Calculate Julian Date
+        term1 = 367 * Y
+        term2 = floor((7 * (Y + floor((M + 9)/12)))/4)
+        term3 = floor(275 * M / 9)
+        term4 = D + 1721013.5
+        term5 = (H + Min/60 + Sec/3600)/24
+        
+        JD = term1 - term2 + term3 + term4 + term5
+        
+        return JD
+    
+    #Converting the UTC to the YYDDD format 
+    def UTC_to_YYDDD(self, dt_utc: datetime) -> str:
+        """
+        Convert UTC datetime to YYDDD.xxxxxxxxxxxxxxx format (14 decimal places).
+        
+        Args:
+            dt_utc: timezone-naive (assumed UTC) or timezone-aware UTC datetime
+            
+        Returns:
+            str: Formatted string like '25139.354166666666667' where:
+                - 25: Last two digits of year
+                - 139: Day of year (001-366)
+                - .354166666666667: Fraction of day (08:30:00 = 0.354166...)
+        
+        Raises:
+            ValueError: If input has non-UTC timezone
+        """
+        # Validate timezone
+        if dt_utc.tzinfo is not None and dt_utc.tzinfo != timezone.utc:
+            raise ValueError("Input datetime must be either naive or explicitly UTC")
+        
+        # Calculate day of year (001-366)
+        day_of_year = dt_utc.timetuple().tm_yday
+        ddd = f"{day_of_year:03d}"
+        
+        # Calculate fraction of day with microsecond precision
+        total_seconds = (
+            dt_utc.hour * 3600 + 
+            dt_utc.minute * 60 + 
+            dt_utc.second + 
+            dt_utc.microsecond / 1e6
+        )
+        fraction = total_seconds / 86400  # Fraction of day
+    
+        # Format with 15 decimal places (corrected string formatting)
+        return f"{dt_utc.strftime('%y')}{ddd}.{fraction:.14f}".split('.')[0][:5] + '.' + f"{fraction:.14f}".split('.')[1]
+    
+    #Formating the UTC time 
+    def format_utc(self, dt: datetime, decimals: int = 6) -> str:
+        """
+        Format a datetime object into a precise string representation.
+        
+        Args:
+            dt: datetime object (naive or timezone-aware)
+            decimals: Number of decimal places for seconds (default=6, no upper limit)
+            
+        Returns:
+            str: Formatted string like '19 May 2025 08:30:00.000000'
+        """
+        # Cross-platform day formatting (no leading zero)
+        day = str(dt.day)
+        
+        # Get base time without microseconds
+        base_time = dt.strftime("%B %Y %H:%M:%S")
+        
+        # Handle decimal places
+        if decimals <= 0:
+            return f"{day} {base_time}"
+        
+        # Calculate fractional seconds with unlimited precision
+        fraction = dt.microsecond / 1_000_000
+        
+        # Format with requested decimal places
+        return f"{day} {base_time}{fraction:.{decimals}f}"[1:] if fraction < 0.1 else f"{day} {base_time}{fraction:.{decimals}f}"
+
+
+    #Saving an orbit as SPK: spk is the offical format for SPICE enhanced COSMOGRAPHIA
+    def save_ephermeris_freeflyer(self, r, v, t, scenario_epoch = datetime.now(timezone.utc), stk_version = "stk.v.11.0",interpolation_method = "Lagrange", interpolation_samplesM1 = 7, central_body = "Earth", coordinate_system="ECI" , file_name="orbit"):
+        '''
+        Will save the orbit as an ephermeris and can be used with STK
+            Parameters:\n
+                r: (np.arr) The trajectory 
+                v: (np.arr) The velocity 
+                t: (np.arr) Time since the start of simulation
+                stk_version : (string) 
+                scenario_epoch : (datetime) Time of the start of simulation in UTC 
+                interpolation_method : (str) interpolation method used in the STK
+                interpolation_samplesM1 : (int)  number of data points used for interpolation. 
+                central_body : (str) central body of the simulation
+                coordinate_system : (str) coordinate system used for describing r and v
+                file_name : (str) the name/directory in which the file we saved at
+
+        '''
+
+        #Ensuring the r and v and t are in np.arr
+        r = np.array(r).reshape((len(r), 3))
+        v = np.array(v).reshape((len(v), 3))
+        t = np.array(t).reshape((len(t),1))
+
+        #Number of point
+        num_points = len(r)
+
+        #State vector + time
+        s = np.hstack([t,r,v])
+        
+        #Finding the time in julian and YYDDD and str
+        scn_epc_str_6_digits = self.format_utc(scenario_epoch)
+        scn_epc_str_9_digits = self.format_utc(scenario_epoch)
+        scn_epc_julian = self.UTC_to_julian(scenario_epoch)
+        scn_ecp_YYDDD = self.UTC_to_YYDDD(scenario_epoch)
+   
+
+        #Generating the header
+        head = f"""{stk_version}
+
+
+# WrittenBy    STK_v11.2.0
+
+BEGIN Ephemeris
+
+NumberOfEphemerisPoints {num_points}
+
+ScenarioEpoch            {scn_epc_str_6_digits}
+
+# Epoch in JDate format: {scn_epc_julian}
+# Epoch in YYDDD format:   {scn_ecp_YYDDD}
+
+
+InterpolationMethod     {interpolation_method}
+
+InterpolationSamplesM1      {interpolation_samplesM1}
+
+CentralBody             {central_body}
+
+CoordinateSystem        {coordinate_system} 
+
+# Time of first point: {scn_epc_str_9_digits} UTCG = {scn_epc_julian} JDate = {scn_ecp_YYDDD} YYDDD
+"""
+        
+        #Generating the body
+        body = "EphemerisTimePosVel\n\n"
+
+        #Adding the elements
+        for instance in s:
+            body = body + '{:.14e} {:.14e} {:.14e} {:.14e} {:.14e} {:.14e} {:.14e}\n'.format(*instance)
+        
+        #Ending the ephermeris 
+        body = body + '\nEND Ephemeris'
+
+        #Saving the ephermeris
+        with open(file_name + ".e", 'w') as f:
+            f.write(head + body)
+
+        return  "Ephermeris saved at:" + file_name + ".e"
+
 
     
 
