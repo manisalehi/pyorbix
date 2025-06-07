@@ -20,6 +20,7 @@ class Orbit_2body():
         self.mu = 3.986004418E+05  # [km^3/s^2]
         self.s = np.array([])
         self.t = np.array([])
+        self.J2 = 1.08263 * 10 **(-3)
         
                         
     #Propagting the orbit from the intial conditons
@@ -31,6 +32,32 @@ class Orbit_2body():
 
         #Numerically solving the equation 
         sol = odeint(self.dS_dt, S0, t)
+
+        #Saving the propagted orbit
+        self.s = sol    
+        self.t = t
+
+        return sol, t
+    
+    #Propagting the orbit from the intial conditons
+    def propagte_with_J2(self, T, time_step, R0, V0):
+        """
+        Propagting the orbit using the inital conditions and considering the effect of J2 perturbation
+        Parameters:\n
+            T: (float) The duration of simulation in seconds
+            time_step : (float) The time step for the simulation 
+            R0 : (np.array([rx, ry, rz])) The inital location of satellite in [km]
+            V0 : (np.array([vx, vy, vz])) The inital velocity of satellite in [km/s]
+        Returns:\n
+            sol : (np.arr) Location and velocity of the satellite at different time steps
+            t: (np.arr) Time steps measured in seconds from the start of the simulaiton
+        """
+        
+        S0 = np.hstack([R0, V0])            #Inital condition state vector
+        t = np.arange(0, T, time_step)     #The time step's to solve the equation for
+
+        #Numerically solving the equation 
+        sol = odeint(self.dS_dt_J2, S0, t)
 
         #Saving the propagted orbit
         self.s = sol    
@@ -90,7 +117,6 @@ class Orbit_2body():
 
         return r_vec, v_vec, angle_of_rotation
 
-
     #If the 2Body assumption without disturbance and thruster's interfearance are assume the h = constant
     def specific_angular_momentum(self, r, v):
         "Calculating  the specific angular momentum of the sattlite in a specific location"
@@ -121,6 +147,26 @@ class Orbit_2body():
         x_ddot = -self.mu * x / (x ** 2 + y ** 2 + z ** 2) ** (3 / 2)
         y_ddot = -self.mu * y / (x ** 2 + y ** 2 + z ** 2) ** (3 / 2)
         z_ddot = -self.mu * z / (x ** 2 + y ** 2 + z ** 2) ** (3 / 2)
+        ds_dt = np.array([x_dot, y_dot, z_dot, x_ddot, y_ddot, z_ddot])
+
+        return ds_dt
+    
+    #Calculating the dS/dt with the 2 Body differential equation + J2 perturbation
+    def dS_dt_J2(self, state ,t):  
+        "Returning the time derivative of the state vector"
+
+        x = state[0]
+        y = state[1]
+        z = state[2]
+        x_dot = state[3]
+        y_dot = state[4]
+        z_dot = state[5]
+
+        r_mag = (x ** 2 + y ** 2 + z ** 2) ** (1 / 2)
+
+        x_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * x/r_mag**3
+        y_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * y/r_mag**3
+        z_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (3 - 5 * (z/r_mag)**2) ) * z/r_mag**3
         ds_dt = np.array([x_dot, y_dot, z_dot, x_ddot, y_ddot, z_ddot])
 
         return ds_dt
@@ -165,7 +211,6 @@ class Orbit_2body():
         elif energy > 0 :
             return "hyperbolic"
         
-    
     #✅Calculating the eccentricity vector and magnitude
     def eccentricity(self, r, v):
         """
@@ -198,7 +243,6 @@ class Orbit_2body():
 
         return e_vec, e_mag
 
-    
     #Finding the change in true anomaly with time
     def time_since_perigee(self ,true_anomaly, r=None, v=None, h=None, e=None, degree_mode=False):
         """
@@ -277,7 +321,6 @@ class Orbit_2body():
 
         return true_anomaly, E, M_e
 
-
     #✅Calculates the period of an orbit
     def period(self, h, e):
         "Calculates the priod of an orbit from true specific angular momentum and eccentricity"
@@ -294,7 +337,6 @@ class Orbit_2body():
         T =  (2 * pi/sqrt(self.mu)) * self.semi_major_axis(h,e)**1.5
 
         return T
-
 
     #✅Calculating the semi_major_axis of the orbit "a"
     def semi_major_axis(self, h, e):
@@ -382,7 +424,6 @@ class Orbit_2body():
 
         # #Returning the elements
         return classical_orbital_elements
-
 
     #Converting the classical orbital element to state sapce 
     def keplerian_to_cartesian(self, e, h, theta, i, RAAN, w, degree_mode=False):
@@ -622,20 +663,28 @@ CoordinateSystem        {coordinate_system}
     
 
     #Saving the orbit with the spk format .bsp (Used by SPCIE kernels)
-    def save_to_spk(self, r_vectors, v_vectors, time, output_file="orbit", kernel_list=["naif0012.tls", "pck00010.tpc"], kernel_base_dir="./kernels"):
+    def save_to_spk(self, r_vectors, v_vectors, time, scenario_epoch=datetime.now(timezone.utc), output_file="orbit", kernel_list=["naif0012.tls", "pck00010.tpc"], kernel_base_dir="./kernels"):
         """
         Save orbit data to SPK (.bsp) file
 
         Args:
             r_vectors: Nx3 array of position vectors (km)
             v_vectors: Nx3 array of velocity vectors (km/s)
-            time: Array of Julian dates
+            time: array of simulation times corresponding to the r_vector and v_vector(Output of the propagate_init_cond)
+            scenario_epoch : (datetime) Time of the start of simulation in UTC 
             output_file: Output SPK file path
-            kernel_list: Array of kernels that have to be loaded
+            kernel_list: Array of kernel names that has to be loaded
             kernel_base_dir : The folder in which the kernels are saved
         """
+        #Converting the scenario_epoch to julian date
+        start_time_julian = self.UTC_to_julian(scenario_epoch)
+
+        #Converting the time vector form seconds to days(Defualt unit for julian date) and adding it with the start time of the scenario 
+        t = time / (24 * 60 * 60) + start_time_julian
+
         #Delete the file if already exist
         file_path = output_file+".bsp"
+
         try:
             # Check if file exists first
             if not os.path.exists(file_path):
@@ -682,7 +731,7 @@ CoordinateSystem        {coordinate_system}
         frame = "J2000"  # SPCIE does not support ECI but the earth centered ICRF is the same as ECI J2000
     
         # Convert Julian dates to ET
-        et_times = np.array([self.jd_to_et(jd) for jd in time])
+        et_times = np.array([self.jd_to_et(jd) for jd in t])
         
         # Combine position and velocity
         states = np.hstack((r_vectors, v_vectors))
