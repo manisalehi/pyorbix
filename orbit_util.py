@@ -541,8 +541,8 @@ class Orbit_2body():
         return f"{day} {base_time}{fraction:.{decimals}f}"[1:] if fraction < 0.1 else f"{day} {base_time}{fraction:.{decimals}f}"
 
 
-    #Saving an orbit as SPK: spk is the offical format for SPICE enhanced COSMOGRAPHIA
-    def save_ephermeris_freeflyer(self, r, v, t, scenario_epoch = datetime.now(timezone.utc), stk_version = "stk.v.11.0",interpolation_method = "Lagrange", interpolation_samplesM1 = 7, central_body = "Earth", coordinate_system="ECI" , file_name="orbit"):
+    #Saving the propagted orbit in the FreeFlyer ephermeris format (STK)
+    def save_ephermeris_freeflyer(self, r, v, t, scenario_epoch = datetime.now(timezone.utc), stk_version = "stk.v.11.0",interpolation_method = "Lagrange", interpolation_samplesM1 = 7, central_body = "Earth", coordinate_system="ICRF" , file_name="orbit"):
         '''
         Will save the orbit as an ephermeris and can be used with STK
             Parameters:\n
