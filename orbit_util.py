@@ -5,20 +5,32 @@ from scipy.optimize  import fsolve
 import plotly.graph_objects as go
 import requests
 import random
-from math import sin, cos, pi, atan2, sqrt, atan, tan, acos
+from math import sin, cos, pi, atan2, sqrt, atan, tan, acos, floor
+from datetime import datetime, timezone, timedelta
+import spiceypy as spice
+import os
+import sys
+
 
 
 #The orbit propagetor
 class Orbit_2body():
     def __init__(self, R0 = None, V0 = None):
-        # Earth's gravitational parameter  
+        # 🌍 Earth's gravitational parameter  
         self.mu = 3.986004418E+05  # [km^3/s^2]
         self.s = np.array([])
         self.t = np.array([])
 
-        # Sun's gravitational parameter(Standard gravity GM)
+        # ☀️ Sun's gravitational parameter(Standard gravity GM)
         self.mu_sun = 1.32712440018E+11 #[km^3/s^2]
-                          
+
+        # 🌙 Moon's gravitational parameter(Standard gravity GM)
+        self.mu_moon = 4.9028695E3
+
+        # 🥚 J2 perturbation constant of the earth                 
+        self.J2 = 1.08263 * 10 **(-3)
+        
+                        
     #Propagting the orbit from the intial conditons
     def propagate_init_cond(self, T, time_step, R0, V0):
         "Propagting the orbit using the inital conditions"
@@ -34,6 +46,75 @@ class Orbit_2body():
         self.t = t
 
         return sol, t
+    
+    #Propagting the orbit from the intial conditons
+    def propagte_with_J2(self, T, time_step, R0, V0):
+        """
+        Propagting the orbit using the inital conditions and considering the effect of J2 perturbation
+        Parameters:\n
+            T: (float) The duration of simulation in seconds
+            time_step : (float) The time step for the simulation 
+            R0 : (np.array([rx, ry, rz])) The inital location of satellite in [km]
+            V0 : (np.array([vx, vy, vz])) The inital velocity of satellite in [km/s]
+        Returns:\n
+            sol : (np.arr) Location and velocity of the satellite at different time steps
+            t: (np.arr) Time steps measured in seconds from the start of the simulaiton
+        """
+        
+        S0 = np.hstack([R0, V0])            #Inital condition state vector
+        t = np.arange(0, T, time_step)     #The time step's to solve the equation for
+
+        #Numerically solving the equation 
+        sol = odeint(self.dS_dt_J2, S0, t)
+
+        #Saving the propagted orbit
+        self.s = sol    
+        self.t = t
+
+        return sol, t
+    
+    #Propagting the orbit from the intial conditons
+    def HFOP(self, T, time_step, R0, V0, scenario_epoch=datetime.now(timezone.utc), kernel_list=["naif0012.tls", "de440.bsp"], kernel_base_dir="./kernels"):
+        """
+        Propagting the orbit using the inital conditions and considering the effect of sun's gravity, moon's gravity, J2, Atmoshpheric drag, solar pressure radiation
+        Parameters:\n
+            T: (float) The duration of simulation in seconds
+            time_step : (float) The time step for the simulation 
+            R0 : (np.array([rx, ry, rz])) The inital location of satellite in [km]
+            V0 : (np.array([vx, vy, vz])) The inital velocity of satellite in [km/s]
+            scenario_epoch : (datetime) The starting time of the simulation in UTC
+            kernel_list : (list) The list of kernel names that should be loaded 
+            kernel_base_dir : (str) The folder at which the kernels are stored at
+        Returns:\n
+            sol : (np.arr) Location and velocity of the satellite at different time steps
+            t: (np.arr) Time steps measured in seconds from the start of the simulaiton
+        """
+
+        S0 = np.hstack([R0, V0])            #Inital condition state vector
+        t = np.arange(0, T, time_step)     #The time step's to solve the equation for
+
+        #Saving the starting time in UTC
+        self.scenario_epoch = scenario_epoch
+
+        # Load essential kernels (adjust paths as needed)
+        for kernel in kernel_list:
+            spice.furnsh(kernel_base_dir+"/"+kernel)
+
+            #Success message
+            print(kernel_base_dir+"/"+kernel + " was loaded succefully")
+
+        #Numerically solving the equation 
+        sol = odeint(self.dS_dt_HFOP, S0, t)
+
+        #Saving the propagted orbit
+        self.s = sol    
+        self.t = t
+
+        #Closing the kernels
+        spice.kclear()
+
+        return sol, t
+
 
     #delta_true_anomaly is assumed to be in degrees if provided in radians set the is_radians to true
     def perifocal_calculator(self, r0, v0, delta_true_anomaly, is_radians = False):
@@ -120,6 +201,65 @@ class Orbit_2body():
         ds_dt = np.array([x_dot, y_dot, z_dot, x_ddot, y_ddot, z_ddot])
 
         return ds_dt
+    
+    #Calculating the dS/dt with the 2 Body differential equation + J2 perturbation
+    def dS_dt_J2(self, state ,t):  
+        "Returning the time derivative of the state vector"
+
+        x = state[0]
+        y = state[1]
+        z = state[2]
+        x_dot = state[3]
+        y_dot = state[4]
+        z_dot = state[5]
+
+        r_mag = (x ** 2 + y ** 2 + z ** 2) ** (1 / 2)
+
+        x_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * x/r_mag**3
+        y_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * y/r_mag**3
+        z_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (3 - 5 * (z/r_mag)**2) ) * z/r_mag**3
+        ds_dt = np.array([x_dot, y_dot, z_dot, x_ddot, y_ddot, z_ddot])
+
+        return ds_dt
+    
+    #Calculating the dS/dt with the 2 Body differential equation + J2 perturbation
+    def dS_dt_HFOP(self, state ,t):  
+        "Returning the time derivative of the state vector"
+
+        #Loading the starting time
+        scenario_epoch = self.scenario_epoch
+
+        #☀️ Get Sun's position relative to Earth in J2000 frame (ECI)
+        r_sun = spice.spkpos("SUN", spice.str2et((scenario_epoch + timedelta(seconds = t)).strftime("%Y-%m-%dT%H:%M:%S")), "J2000", "NONE", "EARTH")[0]
+        #🌙 Get Moon's position relative to Earth in J2000 frame (ECI)
+        r_moon = spice.spkpos("MOON", spice.str2et((scenario_epoch + timedelta(seconds = t)).strftime("%Y-%m-%dT%H:%M:%S")), "J2000", "NONE", "EARTH")[0]
+        # Get the jupiter's position vector relative to Earth in J2000 frame (ECI)
+        # r_jupiter = lambda time :spice.spkpos("JUPITER", spice.str2et((scenario_epoch + timedelta(seconds = time)).strftime("%Y-%m-%dT%H:%M:%S")), "J2000", "NONE", "EARTH")[0]
+
+
+        x = state[0]
+        y = state[1]
+        z = state[2]
+        x_dot = state[3]
+        y_dot = state[4]
+        z_dot = state[5]
+
+        r_mag = (x ** 2 + y ** 2 + z ** 2) ** (1 / 2)
+        r_sun_mag = (r_sun[0]**2 + r_sun[1]**2 + r_sun[2]**2) ** (1 / 2)
+        r_moon_mag = (r_moon[0]**2 + r_moon[1]**2 + r_moon[2]**2) ** (1 / 2)
+
+        #Relative distance of the satellite to the 3rd body
+        r_sun_sat = ( (x - r_sun[0])**2 + (y - r_sun[1])**2 + (z - r_sun[2])**2) ** (1 / 2)         #Distance between the satellite and the sun in km
+        r_moon_sat = ( (x - r_moon[0])**2 + (y - r_moon[1])**2 + (z - r_moon[2])**2) ** (1 / 2)     #Distance between the satellite and the moon in km
+
+        #                                           J2                                                                  sun                                                         moon
+        x_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * x/r_mag**3 + self.mu_sun * ((r_sun[0]-x)/r_sun_sat**3 - r_sun[0]/r_sun_mag**3) + self.mu_moon * ((r_moon[0]-x)/r_moon_sat**3 - r_moon[0]/r_moon_mag**3)
+        y_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * y/r_mag**3 + self.mu_sun * ((r_sun[1]-y)/r_sun_sat**3 - r_sun[1]/r_sun_mag**3) + self.mu_moon * ((r_moon[1]-y)/r_moon_sat**3 - r_moon[1]/r_moon_mag**3)
+        z_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (3 - 5 * (z/r_mag)**2) ) * z/r_mag**3 + self.mu_sun * ((r_sun[2]-z)/r_sun_sat**3 - r_sun[2]/r_sun_mag**3) + self.mu_moon * ((r_moon[2]-z)/r_moon_sat**3 - r_moon[2]/r_moon_mag**3)
+        ds_dt = np.array([x_dot, y_dot, z_dot, x_ddot, y_ddot, z_ddot])
+
+
+        return ds_dt
 
     #✅Calculating the Specific Mechanical Energy of the Orbit_2body
     def energy(self, r, v):
@@ -161,7 +301,6 @@ class Orbit_2body():
         elif energy > 0 :
             return "hyperbolic"
         
-    
     #✅Calculating the eccentricity vector and magnitude
     def eccentricity(self, r, v):
         """
@@ -194,7 +333,6 @@ class Orbit_2body():
 
         return e_vec, e_mag
 
-    
     #Finding the change in true anomaly with time
     def time_since_perigee(self ,true_anomaly, r=None, v=None, h=None, e=None, degree_mode=False):
         """
@@ -273,7 +411,6 @@ class Orbit_2body():
 
         return true_anomaly, E, M_e
 
-
     #✅Calculates the period of an orbit
     def period(self, h, e):
         "Calculates the priod of an orbit from true specific angular momentum and eccentricity"
@@ -290,7 +427,6 @@ class Orbit_2body():
         T =  (2 * pi/sqrt(self.mu)) * self.semi_major_axis(h,e)**1.5
 
         return T
-
 
     #✅Calculating the semi_major_axis of the orbit "a"
     def semi_major_axis(self, h, e):
@@ -350,13 +486,13 @@ class Orbit_2body():
         N_vec = np.cross([0,0,1] , h_vector)
         N_mag = np.linalg.norm(N_vec)
 
-        # #💫Determining the RAAN
+        #💫Determining the RAAN
         RAAN = acos(N_vec[0]/N_mag) if N_vec[1] >= 0 else 2*pi - acos(N_vec[0]/N_mag) 
 
-        # #💫Determining the argument of preiapsis w
+        #💫Determining the argument of preiapsis w
         w = acos(np.dot(N_vec, e_vec)/(N_mag * e)) if e_vec[2] >=0 else 2*pi - acos(np.dot(N_vec, e_vec)/(N_mag * e))
 
-        # #💫Determining the true anomaly
+        #💫Determining the true anomaly
         theta = acos(np.dot(e_vec,r)/(e * r_mag)) if v_r >= 0 else 2*pi - acos(np.dot(e_vec,r)/(e * r_mag))
 
         #Chekc if degree mode is active
@@ -378,7 +514,6 @@ class Orbit_2body():
 
         # #Returning the elements
         return classical_orbital_elements
-
 
     #Converting the classical orbital element to state sapce 
     def keplerian_to_cartesian(self, e, h, theta, i, RAAN, w, degree_mode=False):
@@ -432,6 +567,286 @@ class Orbit_2body():
         #Returning the r and v vector in the ECI frame (Coordinate)
         return r_ECI , v_ECI
     
+    #Instance of what the input should look like sim = datetime(year = 2025, month = 5, day = 19, hour = 8, minute = 20 , second = 0)
+    def UTC_to_julian(self, dt):
+        """
+        Convert a datetime.datetime object (UTC) to Julian Date (JD) using the standard formula.
+        
+        Args:
+            dt (datetime.datetime): UTC datetime object
+            
+        Returns:
+            float: Julian Date (JD)
+            
+        Formula:
+            JD = 367*Y - INT(7*(Y + INT((M+9)/12))/4) 
+                + INT(275*M/9) + D + 1721013.5 
+                + (H + Min/60 + Sec/3600)/24
+        """
+
+        # Validate timezone
+        if dt.tzinfo is not None and dt.tzinfo != timezone.utc:
+            raise ValueError("Input datetime must be either naive or explicitly UTC")
+
+        Y = dt.year
+        M = dt.month
+        D = dt.day
+        H = dt.hour
+        Min = dt.minute
+        Sec = dt.second + dt.microsecond/1e14  # Include microseconds
+        
+        # Calculate Julian Date
+        term1 = 367 * Y
+        term2 = floor((7 * (Y + floor((M + 9)/12)))/4)
+        term3 = floor(275 * M / 9)
+        term4 = D + 1721013.5
+        term5 = (H + Min/60 + Sec/3600)/24
+        
+        JD = term1 - term2 + term3 + term4 + term5
+        
+        return JD
+    
+    #Converting the UTC to the YYDDD format 
+    def UTC_to_YYDDD(self, dt_utc: datetime) -> str:
+        """
+        Convert UTC datetime to YYDDD.xxxxxxxxxxxxxxx format (14 decimal places).
+        
+        Args:
+            dt_utc: timezone-naive (assumed UTC) or timezone-aware UTC datetime
+            
+        Returns:
+            str: Formatted string like '25139.354166666666667' where:
+                - 25: Last two digits of year
+                - 139: Day of year (001-366)
+                - .354166666666667: Fraction of day (08:30:00 = 0.354166...)
+        
+        Raises:
+            ValueError: If input has non-UTC timezone
+        """
+        # Validate timezone
+        if dt_utc.tzinfo is not None and dt_utc.tzinfo != timezone.utc:
+            raise ValueError("Input datetime must be either naive or explicitly UTC")
+        
+        # Calculate day of year (001-366)
+        day_of_year = dt_utc.timetuple().tm_yday
+        ddd = f"{day_of_year:03d}"
+        
+        # Calculate fraction of day with microsecond precision
+        total_seconds = (
+            dt_utc.hour * 3600 + 
+            dt_utc.minute * 60 + 
+            dt_utc.second + 
+            dt_utc.microsecond / 1e6
+        )
+        fraction = total_seconds / 86400  # Fraction of day
+    
+        # Format with 15 decimal places (corrected string formatting)
+        return f"{dt_utc.strftime('%y')}{ddd}.{fraction:.14f}".split('.')[0][:5] + '.' + f"{fraction:.14f}".split('.')[1]
+    
+    #Formating the UTC time 
+    def format_utc(self, dt: datetime, decimals: int = 6) -> str:
+        """
+        Format a datetime object into a precise string representation.
+        
+        Args:
+            dt: datetime object (naive or timezone-aware)
+            decimals: Number of decimal places for seconds (default=6, no upper limit)
+            
+        Returns:
+            str: Formatted string like '19 May 2025 08:30:00.000000'
+        """
+        # Cross-platform day formatting (no leading zero)
+        day = str(dt.day)
+        
+        # Get base time without microseconds
+        base_time = dt.strftime("%B %Y %H:%M:%S")
+        
+        # Handle decimal places
+        if decimals <= 0:
+            return f"{day} {base_time}"
+        
+        # Calculate fractional seconds with unlimited precision
+        fraction = dt.microsecond / 1_000_000
+        
+        # Format with requested decimal places
+        return f"{day} {base_time}{fraction:.{decimals}f}"[1:] if fraction < 0.1 else f"{day} {base_time}{fraction:.{decimals}f}"
+
+    #Saving the propagted orbit in the FreeFlyer ephermeris format (STK)
+    def save_ephermeris_freeflyer(self, r, v, t, scenario_epoch = datetime.now(timezone.utc), stk_version = "stk.v.11.0",interpolation_method = "Lagrange", interpolation_samplesM1 = 7, central_body = "Earth", coordinate_system="ICRF" , file_name="orbit"):
+        '''
+        Will save the orbit as an ephermeris and can be used with STK
+            Parameters:\n
+                r: (np.arr) The trajectory 
+                v: (np.arr) The velocity 
+                t: (np.arr) Time since the start of simulation
+                stk_version : (string) 
+                scenario_epoch : (datetime) Time of the start of simulation in UTC 
+                interpolation_method : (str) interpolation method used in the STK
+                interpolation_samplesM1 : (int)  number of data points used for interpolation. 
+                central_body : (str) central body of the simulation
+                coordinate_system : (str) coordinate system used for describing r and v
+                file_name : (str) the name/directory in which the file we saved at
+
+        '''
+
+        #Ensuring the r and v and t are in np.arr
+        r = np.array(r).reshape((len(r), 3))
+        v = np.array(v).reshape((len(v), 3))
+        t = np.array(t).reshape((len(t),1))
+
+        #Number of point
+        num_points = len(r)
+
+        #State vector + time
+        s = np.hstack([t,r,v])
+        
+        #Finding the time in julian and YYDDD and str
+        scn_epc_str_6_digits = self.format_utc(scenario_epoch)
+        scn_epc_str_9_digits = self.format_utc(scenario_epoch)
+        scn_epc_julian = self.UTC_to_julian(scenario_epoch)
+        scn_ecp_YYDDD = self.UTC_to_YYDDD(scenario_epoch)
+   
+
+        #Generating the header
+        head = f"""{stk_version}
+
+
+# WrittenBy    STK_v11.2.0
+
+BEGIN Ephemeris
+
+NumberOfEphemerisPoints {num_points}
+
+ScenarioEpoch            {scn_epc_str_6_digits}
+
+# Epoch in JDate format: {scn_epc_julian}
+# Epoch in YYDDD format:   {scn_ecp_YYDDD}
+
+
+InterpolationMethod     {interpolation_method}
+
+InterpolationSamplesM1      {interpolation_samplesM1}
+
+CentralBody             {central_body}
+
+CoordinateSystem        {coordinate_system} 
+
+# Time of first point: {scn_epc_str_9_digits} UTCG = {scn_epc_julian} JDate = {scn_ecp_YYDDD} YYDDD
+"""
+        
+        #Generating the body
+        body = "EphemerisTimePosVel\n\n"
+
+        #Adding the elements
+        for instance in s:
+            body = body + '{:.14e} {:.14e} {:.14e} {:.14e} {:.14e} {:.14e} {:.14e}\n'.format(*instance)
+        
+        #Ending the ephermeris 
+        body = body + '\nEND Ephemeris'
+
+        #Saving the ephermeris
+        with open(file_name + ".e", 'w') as f:
+            f.write(head + body)
+
+        return  "Ephermeris saved at:" + file_name + ".e"
+    
+    #Saving the orbit with the spk format .bsp (Used by SPCIE kernels)
+    def save_to_spk(self, r_vectors, v_vectors, time, scenario_epoch=datetime.now(timezone.utc), output_file="orbit", kernel_list=["naif0012.tls", "pck00010.tpc"], kernel_base_dir="./kernels"):
+        """
+        Save orbit data to SPK (.bsp) file
+
+        Args:
+            r_vectors: Nx3 array of position vectors (km)
+            v_vectors: Nx3 array of velocity vectors (km/s)
+            time: array of simulation times corresponding to the r_vector and v_vector(Output of the propagate_init_cond)
+            scenario_epoch : (datetime) Time of the start of simulation in UTC 
+            output_file: Output SPK file path
+            kernel_list: Array of kernel names that has to be loaded
+            kernel_base_dir : The folder in which the kernels are saved
+        """
+        #Converting the scenario_epoch to julian date
+        start_time_julian = self.UTC_to_julian(scenario_epoch)
+
+        #Converting the time vector form seconds to days(Defualt unit for julian date) and adding it with the start time of the scenario 
+        t = time / (24 * 60 * 60) + start_time_julian
+
+        #Delete the file if already exist
+        file_path = output_file+".bsp"
+
+        try:
+            # Check if file exists first
+            if not os.path.exists(file_path):
+                print(f"Error: File '{file_path}' does not exist", file=sys.stderr)
+            
+            
+            # Verify it's actually a file (not a directory)
+            if not os.path.isfile(file_path):
+                print(f"Error: '{file_path}' is not a file", file=sys.stderr)
+            
+            
+            # Remove the file
+            os.remove(file_path)
+        
+            # Verify deletion
+            if os.path.exists(file_path):
+                print(f"Error: Failed to delete '{file_path}'", file=sys.stderr)
+            
+            
+            print(f"Successfully deleted '{file_path}'")
+        
+        
+        except PermissionError:
+            print(f"Error: Permission denied when deleting '{file_path}'", file=sys.stderr)
+        except Exception as e:
+            print(f"Error deleting file: {str(e)}", file=sys.stderr)
+
+        # Load essential kernels (adjust paths as needed)
+        for kernel in kernel_list:
+            spice.furnsh(kernel_base_dir+"/"+kernel)
+
+            #Success message
+            print(kernel_base_dir+"/"+kernel + " was loaded succefully")
+        
+        # Create SPK file
+        handle = spice.spkopn(output_file+".bsp", "SAT_ORBIT_SPK", 0)
+    
+        # SPK parameters
+        body_id = -999  # Negative ID for custom spacecraft
+        center_id = 399  # Earth center
+        frame = "J2000"  # SPCIE does not support ECI but the earth centered ICRF is the same as ECI J2000
+    
+        # Convert Julian dates to ET
+        et_times = np.array([self.jd_to_et(jd) for jd in t])
+        
+        # Combine position and velocity
+        states = np.hstack((r_vectors, v_vectors))
+
+         # Write SPK segment (Type 9 - Lagrange interpolation)
+        spice.spkw09(
+            handle,
+            body_id,
+            center_id,
+            frame,
+            et_times[0],       # First epoch
+            et_times[-1],      # Last epoch
+            "SAT_ORBIT_DATA",  # Segment identifier
+            7,                 # Degree of interpolation (8 points)
+            len(et_times),     # Number of states
+            states,         # state vectors (Postion + Velocity)
+            et_times,          # Epochs
+        )
+
+        # Cleanup
+        spice.spkcls(handle)
+        spice.kclear()
+
+        return f"Saved SPK file to {output_file}"
+
+
+    #Converting the julian date to SPICE ephermeris date 
+    def jd_to_et(self, julian_date):
+        """Convert Julian Date to SPICE ephemeris time (TDB)"""
+        return (julian_date - 2451545.0) * 86400.0  # Convert JD to seconds past J2000
 
     
 
