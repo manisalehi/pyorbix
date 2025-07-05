@@ -15,6 +15,9 @@ class Orbit_2body():
         self.mu = 3.986004418E+05  # [km^3/s^2]
         self.s = np.array([])
         self.t = np.array([])
+
+        # Sun's gravitational parameter(Standard gravity GM)
+        self.mu_sun = 1.32712440018E+11 #[km^3/s^2]
         
                         
     #Propagting the orbit from the intial conditons
@@ -84,7 +87,6 @@ class Orbit_2body():
         angle_of_rotation = angle_of_rotation * 180 / pi
 
         return r_vec, v_vec, angle_of_rotation
-
 
     #If the 2Body assumption without disturbance and thruster's interfearance are assume the h = constant
     def specific_angular_momentum(self, r, v):
