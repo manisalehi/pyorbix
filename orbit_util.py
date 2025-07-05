@@ -18,8 +18,7 @@ class Orbit_2body():
 
         # Sun's gravitational parameter(Standard gravity GM)
         self.mu_sun = 1.32712440018E+11 #[km^3/s^2]
-        
-                        
+                          
     #Propagting the orbit from the intial conditons
     def propagate_init_cond(self, T, time_step, R0, V0):
         "Propagting the orbit using the inital conditions"
