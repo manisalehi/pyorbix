@@ -8,6 +8,7 @@ import random
 from math import sin, cos, pi, atan2, sqrt, atan, tan, acos, floor
 from datetime import datetime, timezone, timedelta
 import spiceypy as spice
+from nrlmsise00 import msise_model
 import os
 import sys
 
@@ -15,11 +16,12 @@ import sys
 
 #The orbit propagetor
 class Orbit_2body():
-    def __init__(self, R0 = None, V0 = None):
+    def __init__(self):
         # 🌍 Earth's gravitational parameter  
         self.mu = 3.986004418E+05  # [km^3/s^2]
         self.s = np.array([])
         self.t = np.array([])
+        self.w_earth = 2*pi/(24 * 60 * 60) + 2 * pi /(365.25 * 24 * 60 * 60)    #[rad/s]
 
         # ☀️ Sun's gravitational parameter(Standard gravity GM)
         self.mu_sun = 1.32712440018E+11 #[km^3/s^2]
@@ -854,13 +856,39 @@ CoordinateSystem        {coordinate_system}
 
         return f"Saved SPK file to {output_file}"
 
-
     #Converting the julian date to SPICE ephermeris date 
     def jd_to_et(self, julian_date):
         """Convert Julian Date to SPICE ephemeris time (TDB)"""
         return (julian_date - 2451545.0) * 86400.0  # Convert JD to seconds past J2000
-
     
+    #A coordiante transformation from earth entered inertia to earth centered earth fixed
+    def ECI_to_ECEF(self, r, t, scenario_epoch = datetime.now(timezone.utc)):
+
+        #✅The time at which the vernal equinox and the prime meridian where algined
+        t_0 = datetime(
+            year = 2025,
+            month = 3,
+            day = 20,
+            hour = 9,
+            minute = 1 
+        )
+
+        #✅The inital angle 
+        theta_0 = abs( self.w_earth * (scenario_epoch - t_0).total_seconds() )
+
+        #Reshaping the position vector of the satellite
+        r_reshaped = r.reshape((len(r) , 1 ,3))
+
+        #Generating the transformations matrices
+        gen = [[[cos(self.w_earth*delta_t+theta_0) , sin(self.w_earth*delta_t+theta_0), 0],[-sin(self.w_earth*delta_t+theta_0), cos(self.w_earth*delta_t+theta_0), 0],[0 , 0, 1]] for delta_t in t]  # Generator: 0, 2, 4, 6, 8
+        transform_matrices = np.array(gen, dtype=np.float32)
+
+        # Performing the transformation
+        transformed_r = np.sum(transform_matrices * r_reshaped, axis=2)
+
+        return transformed_r
+
+
 
 class OrbitVisualizer():
     def colorGenerator(self, num):
