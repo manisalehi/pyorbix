@@ -30,6 +30,10 @@ class Orbit_2body():
         # 🥚 J2 perturbation constant of the earth                 
         self.J2 = 1.08263 * 10 **(-3)
         
+        #Solar pressure radiation 
+        self.AU = 149_597_871    #[km]      => The 1 AU = 149'59'871 km
+        self.S = 1_371          #[w/m^2]    => The solar flux at 1 AU 1_371
+        self.c = 299_792_000     #[m/s]     => The speed of light in m/s
                         
     #Propagting the orbit from the intial conditons
     def propagate_init_cond(self, T, time_step, R0, V0):
@@ -74,7 +78,7 @@ class Orbit_2body():
         return sol, t
     
     #Propagting the orbit from the intial conditons
-    def HFOP(self, T, time_step, R0, V0, scenario_epoch=datetime.now(timezone.utc), kernel_list=["naif0012.tls", "de440.bsp"], kernel_base_dir="./kernels"):
+    def HFOP(self, T, time_step, R0, V0, rho = lambda t, x, y, z: 1.5, A = lambda t, x, y, z : 0.1 , m= lambda t, x ,y ,z : 3 ,scenario_epoch=datetime.now(timezone.utc), kernel_list=["naif0012.tls", "de440.bsp"], kernel_base_dir="./kernels"):
         """
         Propagting the orbit using the inital conditions and considering the effect of sun's gravity, moon's gravity, J2, Atmoshpheric drag, solar pressure radiation
         Parameters:\n
@@ -82,6 +86,9 @@ class Orbit_2body():
             time_step : (float) The time step for the simulation 
             R0 : (np.array([rx, ry, rz])) The inital location of satellite in [km]
             V0 : (np.array([vx, vy, vz])) The inital velocity of satellite in [km/s]
+            rho : (function(t, x, y, z)) The solar radiation pressure coefficent of the satellite as a functiton of time
+            A : (function(t, x, y, z)) The exposed surface area of the satellite as a function of time and position
+            m : (function(t, x, y, z)) The mass of the satellite as the function of time and position
             scenario_epoch : (datetime) The starting time of the simulation in UTC
             kernel_list : (list) The list of kernel names that should be loaded 
             kernel_base_dir : (str) The folder at which the kernels are stored at
@@ -95,6 +102,12 @@ class Orbit_2body():
 
         #Saving the starting time in UTC
         self.scenario_epoch = scenario_epoch
+        #Saving the solar pressure radiation coeffiecnt function
+        self.rho = rho
+        #Saving the mass function the satellite
+        self.m = m
+        #Saving the surface are function of the satellite
+        self.A = A
 
         # Load essential kernels (adjust paths as needed)
         for kernel in kernel_list:
@@ -236,7 +249,6 @@ class Orbit_2body():
         # Get the jupiter's position vector relative to Earth in J2000 frame (ECI)
         # r_jupiter = lambda time :spice.spkpos("JUPITER", spice.str2et((scenario_epoch + timedelta(seconds = time)).strftime("%Y-%m-%dT%H:%M:%S")), "J2000", "NONE", "EARTH")[0]
 
-
         x = state[0]
         y = state[1]
         z = state[2]
@@ -252,10 +264,10 @@ class Orbit_2body():
         r_sun_sat = ( (x - r_sun[0])**2 + (y - r_sun[1])**2 + (z - r_sun[2])**2) ** (1 / 2)         #Distance between the satellite and the sun in km
         r_moon_sat = ( (x - r_moon[0])**2 + (y - r_moon[1])**2 + (z - r_moon[2])**2) ** (1 / 2)     #Distance between the satellite and the moon in km
 
-        #                                           J2                                                                  sun                                                         moon
-        x_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * x/r_mag**3 + self.mu_sun * ((r_sun[0]-x)/r_sun_sat**3 - r_sun[0]/r_sun_mag**3) + self.mu_moon * ((r_moon[0]-x)/r_moon_sat**3 - r_moon[0]/r_moon_mag**3)
-        y_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * y/r_mag**3 + self.mu_sun * ((r_sun[1]-y)/r_sun_sat**3 - r_sun[1]/r_sun_mag**3) + self.mu_moon * ((r_moon[1]-y)/r_moon_sat**3 - r_moon[1]/r_moon_mag**3)
-        z_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (3 - 5 * (z/r_mag)**2) ) * z/r_mag**3 + self.mu_sun * ((r_sun[2]-z)/r_sun_sat**3 - r_sun[2]/r_sun_mag**3) + self.mu_moon * ((r_moon[2]-z)/r_moon_sat**3 - r_moon[2]/r_moon_mag**3)
+        #                                           J2                                                                  sun                                                         moon                                                                                SPR
+        x_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * x/r_mag**3 + self.mu_sun * ((r_sun[0]-x)/r_sun_sat**3 - r_sun[0]/r_sun_mag**3) + self.mu_moon * ((r_moon[0]-x)/r_moon_sat**3 - r_moon[0]/r_moon_mag**3) + (1 + self.rho(t, x, y, z)) * (self.AU/r_sun_sat)**2 * (self.S/self.c) * (self.A(t, x, y, z) / self.m(t, x, y, z)) * ((x - r_sun[0])/r_sun_sat)
+        y_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * y/r_mag**3 + self.mu_sun * ((r_sun[1]-y)/r_sun_sat**3 - r_sun[1]/r_sun_mag**3) + self.mu_moon * ((r_moon[1]-y)/r_moon_sat**3 - r_moon[1]/r_moon_mag**3) + (1 + self.rho(t, x, y, z)) * (self.AU/r_sun_sat)**2 * (self.S/self.c) * (self.A(t, x, y, z) / self.m(t, x, y, z)) * ((y - r_sun[1])/r_sun_sat)
+        z_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (3 - 5 * (z/r_mag)**2) ) * z/r_mag**3 + self.mu_sun * ((r_sun[2]-z)/r_sun_sat**3 - r_sun[2]/r_sun_mag**3) + self.mu_moon * ((r_moon[2]-z)/r_moon_sat**3 - r_moon[2]/r_moon_mag**3) + (1 + self.rho(t, x, y, z)) * (self.AU/r_sun_sat)**2 * (self.S/self.c) * (self.A(t, x, y, z) / self.m(t, x, y, z)) * ((z - r_sun[2])/r_sun_sat)
         ds_dt = np.array([x_dot, y_dot, z_dot, x_ddot, y_ddot, z_ddot])
 
 
