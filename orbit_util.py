@@ -5,23 +5,39 @@ from scipy.optimize  import fsolve
 import plotly.graph_objects as go
 import requests
 import random
-from math import sin, cos, pi, atan2, sqrt, atan, tan, acos, floor
-from datetime import datetime, timezone
+from math import sin, cos, pi, atan2, sqrt, atan, tan, acos, floor, asin
+from datetime import datetime, timezone, timedelta
 import spiceypy as spice
+import nrlmsise00
 import os
 import sys
 
 
 
+
 #The orbit propagetor
 class Orbit_2body():
-    def __init__(self, R0 = None, V0 = None):
-        # Earth's gravitational parameter  
+    def __init__(self):
+        # 🌍 Earth's gravitational parameter  
         self.mu = 3.986004418E+05  # [km^3/s^2]
         self.s = np.array([])
         self.t = np.array([])
+        self.w_earth = 2*pi/(24 * 60 * 60) + 2 * pi /(365.25 * 24 * 60 * 60)    #[rad/s] : MAGNITUDE
+        self.omega_earth = np.array([0, 0, 7.292115e-5])                        # rad/s (ECI Z-axis) : VECTOR
+
+        # ☀️ Sun's gravitational parameter(Standard gravity GM)
+        self.mu_sun = 1.32712440018E+11 #[km^3/s^2]
+
+        # 🌙 Moon's gravitational parameter(Standard gravity GM)
+        self.mu_moon = 4.9028695E3
+
+        # 🥚 J2 perturbation constant of the earth                 
         self.J2 = 1.08263 * 10 **(-3)
         
+        #Solar pressure radiation 
+        self.AU = 149_597_871    #[km]      => The 1 AU = 149'59'871 km
+        self.c_r = 1_371          #[w/m^2]    => The solar flux at 1 AU 1_371
+        self.c = 299_792_000     #[m/s]     => The speed of light in m/s
                         
     #Propagting the orbit from the intial conditons
     def propagate_init_cond(self, T, time_step, R0, V0):
@@ -64,6 +80,85 @@ class Orbit_2body():
         self.t = t
 
         return sol, t
+    
+    #Propagting the orbit from the intial conditons
+    def HFOP(self, T, time_step, R0, V0, rho = lambda t, x, y, z: 1.5, A = lambda t, x, y, z : 0.1 , m= lambda t, x ,y ,z : 3 ,scenario_epoch=datetime.now(timezone.utc), kernel_list=["naif0012.tls", "de440.bsp"], kernel_base_dir="./kernels", s = lambda t, x, y, z : 0.01, cd = 2.2, thrust = lambda t, x, y, z: [0,0,0] ,f107a = lambda t: 1.55, f107 = lambda t: 1.1, ap = lambda t: 1.2, ap_a = lambda t: None, flags = lambda t:None, method=  'gtd7'):
+        """
+        Propagting the orbit using the inital conditions and considering the effect of sun's gravity, moon's gravity, J2, Atmoshpheric drag, solar pressure radiation
+        Parameters:\n
+            T: (float) The duration of simulation in seconds
+            time_step : (float) The time step for the simulation 
+            R0 : (np.array([rx, ry, rz])) The inital location of satellite in [km]
+            V0 : (np.array([vx, vy, vz])) The inital velocity of satellite in [km/s]
+            rho : (function(t, x, y, z)) The solar radiation pressure coefficent of the satellite as a functiton of time and position
+            A : (function(t, x, y, z)) The exposed surface area of the satellite as a function of time and position
+            m : (function(t, x, y, z)) The mass of the satellite as the function of time and position
+            scenario_epoch : (datetime) The starting time of the simulation in UTC
+            kernel_list : (list) The list of kernel names that should be loaded 
+            kernel_base_dir : (str) The folder at which the kernels are stored at
+            s : (function(t, x, y, z)->s) The reference surface area of the satellite for drag
+            cd : (float) Coefficent of drag of the satellite
+            thrust : (function(t,x,y,z) -> [thurst_x, thurst_y, thurst_z]) Return the thrust in netwons in ECI as a function of time and position
+            f107a : (function(t)->float) 81 day avergae measures radio wave emissions from the Sun at a wavelength of 10.7 cm (2.8 GHz) as a function of time
+            f107 : (function(t)->float) instantaneous measures radio wave emissions from the Sun at a wavelength of 10.7 cm (2.8 GHz) as a function of time
+            ap : (function(t)->float) geomagnetic activity index measuring global disturbances in Earth’s magnetic field caused by solar wind. (range: 0–400).
+            ap_a: (function(t)->float) A 3-hour averaged Ap value  
+            flags: (list) A list of integers controlling model behavior. check the NRLMSISE-00 package for more info
+            method = (str) 
+        Returns:\n
+            sol : (np.arr) Location and velocity of the satellite at different time steps
+            t: (np.arr) Time steps measured in seconds from the start of the simulaiton
+        """
+
+        S0 = np.hstack([R0, V0])            #Inital condition state vector
+        t = np.arange(0, T, time_step)     #The time step's to solve the equation for
+
+        #Saving the starting time in UTC
+        self.scenario_epoch = scenario_epoch
+
+        ##🔦Data for solar radiation pressure
+        self.rho = rho
+        self.m = m
+    
+        self.A = A
+
+        ##💨Data for drag
+        self.f107a = f107a
+        self.f107 = f107
+        self.ap = ap
+        self.ap_a = ap_a
+        self.cd = cd
+        #Saving the surface area 
+        self.s = s
+
+        ##🎇Data for thrust
+        self.thrust = thrust
+        
+
+        #⚒️Configs for nrlmsise00.msise_model
+        self.flags = flags
+        self.method = method
+
+        # Load essential kernels (adjust paths as needed)
+        for kernel in kernel_list:
+            spice.furnsh(kernel_base_dir+"/"+kernel)
+
+            #Success message
+            print(kernel_base_dir+"/"+kernel + " was loaded successfully")
+
+        #🧮Numerically solving the equation 
+        sol = odeint(self.dS_dt_HFOP, S0, t)
+        
+
+        #Saving the propagted orbit
+        self.s = sol    
+        self.t = t
+
+        #Closing the kernels
+        spice.kclear()
+
+        return sol, t
+
 
     #delta_true_anomaly is assumed to be in degrees if provided in radians set the is_radians to true
     def perifocal_calculator(self, r0, v0, delta_true_anomaly, is_radians = False):
@@ -168,6 +263,97 @@ class Orbit_2body():
         y_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * y/r_mag**3
         z_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (3 - 5 * (z/r_mag)**2) ) * z/r_mag**3
         ds_dt = np.array([x_dot, y_dot, z_dot, x_ddot, y_ddot, z_ddot])
+
+        return ds_dt
+    
+    #Calculating the dS/dt with the 2 Body differential equation + J2 perturbation
+    def dS_dt_HFOP(self, state ,t):  
+        "Returning the time derivative of the state vector"
+
+        #Loading the starting time
+        scenario_epoch = self.scenario_epoch
+
+        #Current time
+        current_time = scenario_epoch + timedelta(seconds=t)
+
+        #☀️ Get Sun's position relative to Earth in J2000 frame (ECI)
+        r_sun = spice.spkpos("SUN", spice.str2et((scenario_epoch + timedelta(seconds = t)).strftime("%Y-%m-%dT%H:%M:%S")), "J2000", "NONE", "EARTH")[0]
+        #🌙 Get Moon's position relative to Earth in J2000 frame (ECI)
+        r_moon = spice.spkpos("MOON", spice.str2et((scenario_epoch + timedelta(seconds = t)).strftime("%Y-%m-%dT%H:%M:%S")), "J2000", "NONE", "EARTH")[0]
+        # Get the jupiter's position vector relative to Earth in J2000 frame (ECI)
+        # r_jupiter = lambda time :spice.spkpos("JUPITER", spice.str2et((scenario_epoch + timedelta(seconds = time)).strftime("%Y-%m-%dT%H:%M:%S")), "J2000", "NONE", "EARTH")[0]
+
+        x = state[0]
+        y = state[1]
+        z = state[2]
+        x_dot = state[3]
+        y_dot = state[4]
+        z_dot = state[5]
+
+        #Finding the local solar time of the satellite
+        local_satellite_time = self.local_solar_time(r=np.array([x,y,z]) ,t=t ,scenario_epoch=scenario_epoch )
+        
+        #Finding the density of the air
+        density = nrlmsise00.msise_model(
+                        time = current_time
+                       , alt = sqrt(x**2 + y**2 + z**2) - 6378
+                       , lat = self.lat_long_from_ECI(state[0:3], t, scenario_epoch)[0]
+                       , lon = self.lat_long_from_ECI(state[0:3], t, scenario_epoch)[1]
+                       , f107a = self.f107a(t)       #Change this if nec
+                       , f107 = self.f107(t)
+                       , ap = self.ap(t)
+                       , lst = local_satellite_time.hour
+                       , ap_a = self.ap_a(t)
+                       , flags = self.flags(t)
+                       , method='gtd7')[0][5]
+               
+
+        #Calculcations for 3rd body
+        r_mag = (x ** 2 + y ** 2 + z ** 2) ** (1 / 2)
+        r_sun_mag = (r_sun[0]**2 + r_sun[1]**2 + r_sun[2]**2) ** (1 / 2)
+        r_moon_mag = (r_moon[0]**2 + r_moon[1]**2 + r_moon[2]**2) ** (1 / 2)
+        
+        #Relative distance of the satellite to the 3rd body
+        r_sun_sat = ( (x - r_sun[0])**2 + (y - r_sun[1])**2 + (z - r_sun[2])**2) ** (1 / 2)         #Distance between the satellite and the sun in km
+        r_moon_sat = ( (x - r_moon[0])**2 + (y - r_moon[1])**2 + (z - r_moon[2])**2) ** (1 / 2)     #Distance between the satellite and the moon in km
+        
+        #Finding the v_atm
+        v_atm = np.cross(self.omega_earth, np.array([x , y, z]))  # km/s
+        #Finding the relative velocity
+        v_rel = np.array([x_dot, y_dot, z_dot]) - v_atm
+        
+        #J2
+        x_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * x/r_mag**3 
+        y_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (1 - 5 * (z/r_mag)**2) ) * y/r_mag**3 
+        z_ddot = -self.mu * (1 + 1.5 * self.J2 * ((6378/r_mag)**2) * (3 - 5 * (z/r_mag)**2) ) * z/r_mag**3 
+        
+        #SUN's gravity perturbation
+        x_ddot+= self.mu_sun * ((r_sun[0]-x)/r_sun_sat**3 - r_sun[0]/r_sun_mag**3) 
+        y_ddot+= self.mu_sun * ((r_sun[1]-y)/r_sun_sat**3 - r_sun[1]/r_sun_mag**3) 
+        z_ddot+= self.mu_sun * ((r_sun[2]-z)/r_sun_sat**3 - r_sun[2]/r_sun_mag**3) 
+        
+        #MOON's gravity
+        x_ddot+= self.mu_moon * ((r_moon[0]-x)/r_moon_sat**3 - r_moon[0]/r_moon_mag**3) 
+        y_ddot+= self.mu_moon * ((r_moon[1]-y)/r_moon_sat**3 - r_moon[1]/r_moon_mag**3) 
+        z_ddot+= self.mu_moon * ((r_moon[2]-z)/r_moon_sat**3 - r_moon[2]/r_moon_mag**3) 
+        
+        #Solar Pressure Radiation perturbation
+        x_ddot+= (1 + self.rho(t, x, y, z)) * (self.AU/r_sun_sat)**2 * (self.c_r/self.c) * (self.A(t, x, y, z) / self.m(t, x, y, z)) * ((x - r_sun[0])/r_sun_sat) 
+        y_ddot+= (1 + self.rho(t, x, y, z)) * (self.AU/r_sun_sat)**2 * (self.c_r/self.c) * (self.A(t, x, y, z) / self.m(t, x, y, z)) * ((y - r_sun[1])/r_sun_sat) 
+        z_ddot+= (1 + self.rho(t, x, y, z)) * (self.AU/r_sun_sat)**2 * (self.c_r/self.c) * (self.A(t, x, y, z) / self.m(t, x, y, z)) * ((z - r_sun[2])/r_sun_sat) 
+        
+        #Atmospheric drag
+        x_ddot+= 0.5 * density * self.s(t,x,y,z) * self.cd * v_rel[0]**2
+        y_ddot+= 0.5 * density * self.s(t,x,y,z) * self.cd * v_rel[1]**2
+        z_ddot+= 0.5 * density * self.s(t,x,y,z) * self.cd * v_rel[2]**2
+
+        #Thrust
+        x_ddot+= self.thrust(t,x,y,z)[0]
+        y_ddot+= self.thrust(t,x,y,z)[1]
+        z_ddot+= self.thrust(t,x,y,z)[2]
+
+        ds_dt = np.array([x_dot, y_dot, z_dot, x_ddot, y_ddot, z_ddot])
+       
 
         return ds_dt
 
@@ -322,7 +508,7 @@ class Orbit_2body():
         return true_anomaly, E, M_e
 
     #✅Calculates the period of an orbit
-    def period(self, h, e):
+    def period(self, h:float, e:float):
         "Calculates the priod of an orbit from true specific angular momentum and eccentricity"
         
         #For open orbits T=inf
@@ -581,7 +767,6 @@ class Orbit_2body():
         # Format with requested decimal places
         return f"{day} {base_time}{fraction:.{decimals}f}"[1:] if fraction < 0.1 else f"{day} {base_time}{fraction:.{decimals}f}"
 
-
     #Saving the propagted orbit in the FreeFlyer ephermeris format (STK)
     def save_ephermeris_freeflyer(self, r, v, t, scenario_epoch = datetime.now(timezone.utc), stk_version = "stk.v.11.0",interpolation_method = "Lagrange", interpolation_samplesM1 = 7, central_body = "Earth", coordinate_system="ICRF" , file_name="orbit"):
         '''
@@ -661,7 +846,6 @@ CoordinateSystem        {coordinate_system}
 
         return  "Ephermeris saved at:" + file_name + ".e"
     
-
     #Saving the orbit with the spk format .bsp (Used by SPCIE kernels)
     def save_to_spk(self, r_vectors, v_vectors, time, scenario_epoch=datetime.now(timezone.utc), output_file="orbit", kernel_list=["naif0012.tls", "pck00010.tpc"], kernel_base_dir="./kernels"):
         """
@@ -717,10 +901,7 @@ CoordinateSystem        {coordinate_system}
             spice.furnsh(kernel_base_dir+"/"+kernel)
 
             #Success message
-            print(kernel_base_dir+"/"+kernel + " was loaded succefully")
-            
-        # spice.furnsh("./kernels/naif0012.tls")  # Leap seconds
-        # spice.furnsh("./kernels/pck00010.tpc")  # Planetary constants
+            print(kernel_base_dir+"/"+kernel + " was loaded successfully")
         
         # Create SPK file
         handle = spice.spkopn(output_file+".bsp", "SAT_ORBIT_SPK", 0)
@@ -754,15 +935,131 @@ CoordinateSystem        {coordinate_system}
         # Cleanup
         spice.spkcls(handle)
         spice.kclear()
+
         return f"Saved SPK file to {output_file}"
 
-    
     #Converting the julian date to SPICE ephermeris date 
     def jd_to_et(self, julian_date):
         """Convert Julian Date to SPICE ephemeris time (TDB)"""
         return (julian_date - 2451545.0) * 86400.0  # Convert JD to seconds past J2000
-
     
+    #✅A coordiante transformation from earth entered inertia to earth centered earth fixed
+    def ECI_to_ECEF(self, r, t, scenario_epoch = datetime.now(timezone.utc)):
+        """
+        Converting position vector(s) from ECI to ECEF frame.
+
+        Args:
+            r: (np.array) The list of position vectors at different time steps
+            t: (np.array) The time elapsed since the start of the simulation(time steps) in seconds
+            scenario_epoch: (datetime) The UTC time at which the simulation was started
+        Returns:
+            r_transformed: (np.array) The positionvectors in ECEF
+        """
+        
+        #Conversion to array
+        r = np.array(r)
+        t = np.array(t)
+
+        if r.ndim == 1:                     #if only a single position vector was passed to the function
+            r = r.reshape([1, 1 , 3])       #Reshaping the r
+            t = t.reshape([1])              #Reshaping the t
+
+        #The time at which the vernal equinox and the prime meridian where algined
+        t_0 = datetime(
+            year = 2025,
+            month = 3,
+            day = 20,
+            hour = 9,
+            minute = 1 ,
+            tzinfo = timezone.utc
+        )
+
+        #When subtracting two datetime it is important that they either both have the tzinfo filed or neither have it
+        try:
+            #The inital angle 
+            theta_0 = abs( self.w_earth * (scenario_epoch - t_0).total_seconds() )
+        
+        except TypeError:
+            raise Exception("🚀Sorry the scenario_epoch is naive. please specify the time zone for which this information is given. use the tzinfo of the datetime module")
+
+        #Reshaping the position vector of the satellite
+        r_reshaped = r.reshape((len(r) , 1 ,3))
+
+        #Generating the transformations matrices
+        gen = [[[cos(self.w_earth*delta_t+theta_0) , sin(self.w_earth*delta_t+theta_0), 0],[-sin(self.w_earth*delta_t+theta_0), cos(self.w_earth*delta_t+theta_0), 0],[0 , 0, 1]] for delta_t in t]  # Generator: 0, 2, 4, 6, 8
+        transform_matrices = np.array(gen, dtype=np.float32)
+
+        # Performing the transformation -> This is matricx multipication implmeneted using element ise multipication and sum
+        transformed_r = np.sum(transform_matrices *  r_reshaped, axis=2)
+
+        return transformed_r
+    
+    #💱Calculating the latitude and the longitude of the subsatellite point
+    def lat_long_from_ECEF(self, r_ecef:np.ndarray):
+        """
+        Determines the latitude and longitude of the subsatellite point.
+        Args:
+            r_ecef (np.array): Position vector(s) of satellite in the ECEF frame.
+        Returns:
+            tuple of np.array: (lat, long) where:
+                lat (np.array): Latitude in degrees.
+                long (np.array): Longitude in degrees.
+        """
+
+        #🌐Calculating the latitude and the longitude
+        lat = np.arcsin(r_ecef[::,2] / np.linalg.norm(r_ecef, axis=1)) * 180 / pi   #Output -90 to +90
+        long = np.arctan2(r_ecef[::,1], r_ecef[::,0]) * 180 / pi                    #Output range -180 to +180
+
+        return lat, long
+    
+    #💱Calculating the latitude and the longitude of the subsatellite point
+    def lat_long_from_ECI(self ,r_eci:np.ndarray ,t:np.ndarray ,scenario_epoch = datetime.now(timezone.utc)):
+        """
+        Determines the latitude and longitude of the subsatellite point.
+        Args:
+            r_ecef (np.array): Position vector(s) of satellite in the ECI frame.
+            t: (np.array) The time elapsed since the start of the simulation(time steps) in seconds
+            scenario_epoch: (datetime) The UTC time at which the simulation was started
+        Returns:
+            tuple of np.array: (lat, long) where:
+                lat (np.array): Latitude in degrees.
+                long (np.array): Longitude in degrees.
+        """
+
+        #Converting the position vector from ECI to ECEF
+        r_ecef = self.ECI_to_ECEF(
+            r = r_eci,
+            t = t,
+            scenario_epoch=scenario_epoch,
+        )
+
+        #Determining the latitude and longitude of the satellite
+        lat, long = self.lat_long_from_ECEF(r_ecef=r_ecef)
+
+        return lat, long
+
+    #⌚Finding the local solar time of the subsatellite  
+    def local_solar_time(self, r, t, scenario_epoch):
+        """
+        Local solar time of the subsatellite (Only works for a single position vector)
+        Args:
+            r : (np.ndarray) The position vector in ECI
+            t : (float) Seconds elapsed since the beginning of the simulation
+            scenario_epoch : (datetime.datetime) The UTC time of the start of simulation
+        Returns:
+            time : (datetime.datetime) The local solar time
+        """
+        #Converting the r to np.ndarray
+        r = np.array(r)
+
+        #Finding the latitude and longitude of the satellite
+        _, long = self.lat_long_from_ECI(r, t, scenario_epoch)
+        
+        #Every 15 degrees of longitude is one hour
+        return scenario_epoch + timedelta(hours=long[0]/15, seconds=t)
+
+
+
 
 class OrbitVisualizer():
     def colorGenerator(self, num):
@@ -1214,6 +1511,140 @@ class OrbitVisualizer():
         )
 
         # Show plot
+        fig.show()
+
+    def ground_track(self, latitudes, longitudes, names = [], show_legend = True, font_size_legend = 14):
+        """Gets and prints the spreadsheet's header columns
+
+        Parameters
+        ----------
+        latitudes : np.ndarray
+            A two dimensional array containing the latitudes for each satellite(Each row is for a different satellite).
+        longitudes : np.ndarray
+            A two dimensional array containing the longitudes for each satellite(Each row is for a different satellite).
+        names : list
+            A list containing the names that will be displayed for each satellite on the legend.
+        show_legend : bool
+            By diffualt is True determines if the legend show be displayed.
+        font_size_legend : int
+            The font size of the legend.
+
+        """
+
+
+        #Converting the latitudes and longitudes to np.ndarray
+        latitudes = np.array(latitudes)
+        longitudes = np.array(longitudes)
+
+        #If there is only a single orbit
+        if latitudes.ndim == 1:
+            latitudes = latitudes.reshape((1, len(latitudes)))
+            longitudes = longitudes.reshape((1, len(longitudes)))
+
+        #Getting the color plate of the orbits
+        colors = self.colorGenerator(num = len(latitudes) * 3)
+
+        #Check if the names(legends) are provided otherwise set all the values equal to "ORBIT" and disable the legend
+        if names == []:
+            names = [f"Orbit{i}" for i in range(len(latitudes))]
+
+        elif type(names) is str:    #If the names has only a single value make i a list
+            names = [names for i in range(len(latitudes))]
+            
+        
+
+        # Initialize figure
+        fig = go.Figure()
+
+        # Add Blue Marble image (replace with your path)
+        fig.add_layout_image(
+            dict(
+                source="blue_marple_earth.jpg",
+                xref="x",
+                yref="y",
+                x=-180,
+                y=85,
+                sizex=360,
+                sizey=170,
+                sizing="stretch",
+                layer="below",
+                opacity=1.0
+            )
+        )
+
+        
+        #Plotting all of the ground track as well as their starting and final subsatellite pont
+        for i , (lat, long) in enumerate(zip(latitudes, longitudes)):
+
+            # The starting point
+            fig.add_trace(
+                go.Scattergeo(
+                    lon=long[0:1],   # Replace with your longitudes
+                    lat=lat[0:1],    # Replace with your latitudes
+                    mode="markers",
+                    name = f"Starting point of {names[i]}",
+                    marker=dict(
+                        size=10,
+                        color=colors[i+1],
+                        opacity=0.8,
+                        line=dict(width=1, color="white")
+                    )
+                )
+            )
+
+             # The trajectory
+            fig.add_trace(
+                go.Scattergeo(
+                    lon=long,   # Replace with your longitudes
+                    lat=lat,    # Replace with your latitudes
+                    mode="lines",
+                    name = f"Ground track of {names[i]}",
+                    marker=dict(
+                        size=10,
+                        color=colors[i],
+                        opacity=0.8,
+                        line=dict(width=1, color="white")
+                    )
+                )
+            )
+
+            # The last point
+            fig.add_trace(
+                go.Scattergeo(
+                    lon=long[-1:],   # Replace with your longitudes
+                    lat=lat[-1:],    # Replace with your latitudes
+                    mode="markers",
+                    name = f"Ending point of {names[i]}",
+                    marker=dict(
+                        size=10,
+                        color=colors[i+2],
+                        opacity=0.8,
+                        line=dict(width=1, color="white")
+                    )
+                )
+            )
+
+
+        # Critical layout updates to remove white box
+        fig.update_layout(
+            width=1200,
+            height=700,
+            margin={"r": 0, "t": 0, "l": 0, "b": 0},
+            xaxis=dict(visible=False, range=[-180, 180]),
+            yaxis=dict(visible=False, range=[-85, 85]),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='black',
+            showlegend=show_legend,
+            legend_font_size = font_size_legend
+        )
+
+        # Disable default map features
+        fig.update_geos(
+            visible=False,
+            showframe=False,
+            bgcolor='rgba(0,0,0,0)',
+        )
+
         fig.show()
 
 
