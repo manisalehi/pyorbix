@@ -1,3 +1,7 @@
+""""
+
+"""
+
 #Dependencies
 import numpy as np 
 from scipy.integrate import odeint, quad
@@ -11,6 +15,7 @@ import spiceypy as spice
 import nrlmsise00
 import os
 import sys
+from typing import Tuple, List, Callable, Any, Optional, Union, Dict
 
 
 
@@ -39,14 +44,49 @@ class Orbit_2body():
         self.c_r = 1_371          #[w/m^2]    => The solar flux at 1 AU 1_371
         self.c = 299_792_000     #[m/s]     => The speed of light in m/s
                         
-    #Propagting the orbit from the intial conditons
-    def propagate_init_cond(self, T, time_step, R0, V0):
-        "Propagting the orbit using the inital conditions"
+    #📝 A 2body orbit propagtor
+    def propagate_init_cond(self, T: float, time_step:float, R0:Optional[Union[List[float], np.ndarray]], V0:Optional[Union[List[float], np.ndarray]]) -> Tuple[np.ndarray, np.ndarray]:
+        """Propagates orbit using two-body equations with given initial conditions.
+
+        Numerically solves the orbital propagation problem in ECI (J2000) reference frame.
+
+        Parameters
+        ----------
+        T : float
+            Total simulation duration (seconds)
+        time_step : float
+            Time step for numerical integration (seconds)
+        R0 : array_like, shape (3,)
+            Initial position vector [rx, ry, rz] in ECI frame (kilometers)
+        V0 : array_like, shape (3,)
+            Initial velocity vector [vx, vy, vz] in ECI frame (kilometers/second)
+
+        Returns
+        -------
+        tuple
+            A tuple containing:
+            - ndarray
+                Propagated state vectors with shape (n,6) containing:
+                [rx, ry, rz, vx, vy, vz] for each time step (km, km/s)
+            - ndarray
+                Time values at each integration step (seconds)
+
+        Notes
+        -----
+        - Pure two-body problem (Keplerian motion)
+        - Uses Earth's gravitational parameter (self.mu)
+        - Results stored in instance variables:
+        * self.s: State vector history
+        * self.t: Corresponding time steps
+        - Suitable for preliminary orbit analysis
+        - For higher fidelity, consider adding perturbations
+        """
+        
         
         S0 = np.hstack([R0, V0])            #Inital condition state vector
-        t = np.arange(0, T, time_step)     #The time step's to solve the equation for
+        t = np.arange(0, T, time_step)      #The time step's to solve the equation for
 
-        #Numerically solving the equation 
+        #🧮Numerically solving the equation  
         sol = odeint(self.dS_dt, S0, t)
 
         #Saving the propagted orbit
@@ -55,24 +95,45 @@ class Orbit_2body():
 
         return sol, t
     
-    #Propagting the orbit from the intial conditons
-    def propagte_with_J2(self, T, time_step, R0, V0):
-        """
-        Propagting the orbit using the inital conditions and considering the effect of J2 perturbation
-        Parameters:\n
-            T: (float) The duration of simulation in seconds
-            time_step : (float) The time step for the simulation 
-            R0 : (np.array([rx, ry, rz])) The inital location of satellite in [km]
-            V0 : (np.array([vx, vy, vz])) The inital velocity of satellite in [km/s]
-        Returns:\n
-            sol : (np.arr) Location and velocity of the satellite at different time steps
-            t: (np.arr) Time steps measured in seconds from the start of the simulaiton
+    #📝 A J2 propagator
+    def propagte_with_J2(self, T:float, time_step:float, R0:Optional[Union[List[float], np.ndarray]], V0:Optional[Union[List[float], np.ndarray]]) -> Tuple[np.ndarray, np.ndarray]:
+        """Propagates orbit using 2-body equations with J2 perturbation.
+
+        Numerically solves orbital propagation problem with initial conditions in ECI frame.
+
+        Parameters
+        ----------
+        T : float
+            Total simulation duration (s)
+        time_step : float
+            Time step for numerical integration (s)
+        R0 : array_like, shape (3,)
+            Initial position vector [rx, ry, rz] in ECI (J2000) frame (km)
+        V0 : array_like, shape (3,)
+            Initial velocity vector [vx, vy, vz] in ECI (J2000) frame (km/s)
+
+        Returns
+        -------
+        tuple
+            Contains:
+            - ndarray: State vectors with shape (n,6) containing [rx, ry, rz, vx, vy, vz] (km, km/s)
+            - ndarray: Time values at each integration step (s)
+
+        Notes
+        -----
+        - Includes both central gravity and J2 perturbation effects
+        - Uses Earth's oblateness parameter (J2 ≈ 1.08263e-3)
+        - Results stored in instance variables:
+        * self.s: Array of state vectors
+        * self.t: Array of time steps
+        - Uses scipy.integrate.odeint for numerical solution
+        - J2 accounts for Earth's equatorial bulge effect
         """
         
         S0 = np.hstack([R0, V0])            #Inital condition state vector
-        t = np.arange(0, T, time_step)     #The time step's to solve the equation for
+        t = np.arange(0, T, time_step)      #The time step's to solve the equation for
 
-        #Numerically solving the equation 
+        #🧮Numerically solving the equation 
         sol = odeint(self.dS_dt_J2, S0, t)
 
         #Saving the propagted orbit
@@ -82,37 +143,98 @@ class Orbit_2body():
         return sol, t
     
     #Propagting the orbit from the intial conditons
-    def HFOP(self, T, time_step, R0, V0, rho = lambda t, x, y, z: 1.5, A = lambda t, x, y, z : 0.1 , m= lambda t, x ,y ,z : 3 ,scenario_epoch=datetime.now(timezone.utc), kernel_list=["naif0012.tls", "de440.bsp"], kernel_base_dir="./kernels", s = lambda t, x, y, z : 0.01, cd = 2.2, thrust = lambda t, x, y, z: [0,0,0] ,f107a = lambda t: 1.55, f107 = lambda t: 1.1, ap = lambda t: 1.2, ap_a = lambda t: None, flags = lambda t:None, method=  'gtd7'):
-        """
-        Propagting the orbit using the inital conditions and considering the effect of sun's gravity, moon's gravity, J2, Atmoshpheric drag, solar pressure radiation
-        Parameters:\n
-            T: (float) The duration of simulation in seconds
-            time_step : (float) The time step for the simulation 
-            R0 : (np.array([rx, ry, rz])) The inital location of satellite in [km]
-            V0 : (np.array([vx, vy, vz])) The inital velocity of satellite in [km/s]
-            rho : (function(t, x, y, z)) The solar radiation pressure coefficent of the satellite as a functiton of time and position
-            A : (function(t, x, y, z)) The exposed surface area of the satellite as a function of time and position
-            m : (function(t, x, y, z)) The mass of the satellite as the function of time and position
-            scenario_epoch : (datetime) The starting time of the simulation in UTC
-            kernel_list : (list) The list of kernel names that should be loaded 
-            kernel_base_dir : (str) The folder at which the kernels are stored at
-            s : (function(t, x, y, z)->s) The reference surface area of the satellite for drag
-            cd : (float) Coefficent of drag of the satellite
-            thrust : (function(t,x,y,z) -> [thurst_x, thurst_y, thurst_z]) Return the thrust in netwons in ECI as a function of time and position
-            f107a : (function(t)->float) 81 day avergae measures radio wave emissions from the Sun at a wavelength of 10.7 cm (2.8 GHz) as a function of time
-            f107 : (function(t)->float) instantaneous measures radio wave emissions from the Sun at a wavelength of 10.7 cm (2.8 GHz) as a function of time
-            ap : (function(t)->float) geomagnetic activity index measuring global disturbances in Earth’s magnetic field caused by solar wind. (range: 0–400).
-            ap_a: (function(t)->float) A 3-hour averaged Ap value  
-            flags: (list) A list of integers controlling model behavior. check the NRLMSISE-00 package for more info
-            method = (str) 
-        Returns:\n
-            sol : (np.arr) Location and velocity of the satellite at different time steps
-            t: (np.arr) Time steps measured in seconds from the start of the simulaiton
+    def HFOP(
+    self,
+    T: float,
+    time_step: float,
+    R0: Optional[Union[List[float], np.ndarray]],
+    V0: Optional[Union[List[float], np.ndarray]],
+    rho: Callable[[float, float, float, float], float] = lambda t, x, y, z: 1.5,
+    A: Callable[[float, float, float, float], float] = lambda t, x, y, z: 0.1,
+    m: Callable[[float, float, float, float], float] = lambda t, x, y, z: 3,
+    scenario_epoch: datetime = datetime.now(timezone.utc),
+    kernel_list: List[str] = ["naif0012.tls", "de440.bsp"],
+    kernel_base_dir: str = "./kernels",
+    s: Callable[[float, float, float, float], float] = lambda t, x, y, z: 0.01,
+    cd: float = 2.2,
+    thrust: Callable[[float, float, float, float], List[float]] = lambda t, x, y, z: [0, 0, 0],
+    f107a: Callable[[float], float] = lambda t: 1.55,
+    f107: Callable[[float], float] = lambda t: 1.1,
+    ap: Callable[[float], float] = lambda t: 1.2,
+    ap_a: Optional[Callable[[float], float]] = lambda t: None,
+    flags: Optional[Callable[[float], Any]] = lambda t: None,
+    method: str = 'gtd7'
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Propagates orbit considering multiple perturbation forces.
+
+        Simulates orbital dynamics including gravitational and non-gravitational perturbations.
+
+        Parameters
+        ----------
+        T : float
+            Total simulation duration (s)
+        time_step : float
+            Integration time step (s)
+        R0 : array_like, shape (3,)
+            Initial position vector [rx, ry, rz] in ECI (J2000) frame (km)
+        V0 : array_like, shape (3,)
+            Initial velocity vector [vx, vy, vz] in ECI (J2000) frame (km/s)
+        rho : callable
+            Solar radiation pressure coefficient function f(t, x, y, z) -> float
+        A : callable
+            Exposed surface area function f(t, x, y, z) -> float (m²)
+        m : callable
+            Mass function f(t, x, y, z) -> float (kg)
+        scenario_epoch : datetime
+            Simulation start time (UTC)
+        kernel_list : list of str
+            SPICE kernel filenames to load
+        kernel_base_dir : str
+            Directory containing SPICE kernels
+        s : callable
+            Drag reference area function f(t, x, y, z) -> float (m²)
+        cd : float
+            Drag coefficient (dimensionless)
+        thrust : callable
+            Thrust force function f(t, x, y, z) -> [Fx, Fy, Fz] (N) in ECI
+        f107a : callable
+            81-day averaged solar radio flux (10.7 cm) f(t) -> float
+        f107 : callable
+            Instantaneous solar radio flux (10.7 cm) f(t) -> float
+        ap : callable
+            Geomagnetic index function f(t) -> float
+        ap_a : callable, optional
+            3-hour averaged ap index function f(t) -> float
+        flags : callable, optional
+            NRLMSISE-00 model flags function f(t) -> list
+        method : str, optional
+            Atmospheric model method ('gtd7' for NRLMSISE-00, default)
+
+        Returns
+        -------
+        tuple
+            Contains:
+            - ndarray: State vectors [rx, ry, rz, vx, vy, vz] at each time step (km, km/s)
+            - ndarray: Time values corresponding to each state (s)
+
+        Notes
+        -----
+        - Perturbations include:
+        * Third-body gravity (Sun/Moon)
+        * Earth oblateness (J2)
+        * Atmospheric drag
+        * Solar radiation pressure
+        * Custom thrust
+        - Requires SPICE kernels for ephemeris data
+        - Uses NRLMSISE-00 atmospheric model
+        - Results stored in self.s (states) and self.t (time)
+        - Kernels automatically unloaded after propagation
         """
 
         S0 = np.hstack([R0, V0])            #Inital condition state vector
         t = np.arange(0, T, time_step)     #The time step's to solve the equation for
 
+        #--Saving certain arguments as the class parameter to be loaded in the ds_dt_HFOP--
         #Saving the starting time in UTC
         self.scenario_epoch = scenario_epoch
 
@@ -134,22 +256,20 @@ class Orbit_2body():
         ##🎇Data for thrust
         self.thrust = thrust
         
-
         #⚒️Configs for nrlmsise00.msise_model
         self.flags = flags
         self.method = method
 
-        # Load essential kernels (adjust paths as needed)
+        #🔃Loading essential kernels (adjust paths as needed)
         for kernel in kernel_list:
             spice.furnsh(kernel_base_dir+"/"+kernel)
 
             #Success message
-            print(kernel_base_dir+"/"+kernel + " was loaded successfully")
+            print(kernel_base_dir+"/"+kernel + " was loaded successfully.")
 
         #🧮Numerically solving the equation 
         sol = odeint(self.dS_dt_HFOP, S0, t)
         
-
         #Saving the propagted orbit
         self.s = sol    
         self.t = t
@@ -160,16 +280,48 @@ class Orbit_2body():
         return sol, t
 
 
-    #delta_true_anomaly is assumed to be in degrees if provided in radians set the is_radians to true
-    def perifocal_calculator(self, r0, v0, delta_true_anomaly, is_radians = False):
-        "Prediciting the r and v of the sattelite's position vecotr and velocity vector after a specific amount of true anomaly"
+    #📝 Delta_true_anomaly is assumed to be in degrees if provided in radians set the is_radians to true
+    def perifocal_calculator(self, R0:Optional[Union[List[float], np.ndarray]], V0:Optional[Union[List[float], np.ndarray]], delta_true_anomaly:float, is_radians:bool = False) -> Tuple[np.ndarray, np.ndarray, float]:
+        """Predicts satellite state vectors after a true anomaly change.
+
+        Calculates new position and velocity in perifocal frame and frame rotation angle.
+
+        Parameters
+        ----------
+        R0 : array_like, shape (3,)
+            Initial position vector [x, y, z] in inertial frame (km)
+        V0 : array_like, shape (3,)
+            Initial velocity vector [vx, vy, vz] corresponding to R0 (km/s)
+        delta_true_anomaly : float
+            Angular change in true anomaly (degrees by default)
+        is_radians : bool, optional
+            If True, interprets delta_true_anomaly as radians (default: False)
+
+        Returns
+        -------
+        tuple
+            Contains:
+            - ndarray: New position vector [rx, ry, rz] (km)
+            - ndarray: New velocity vector [vx, vy, vz] (km/s)
+            - float: Rotation angle between frames (degrees)
+
+        Notes
+        -----
+        - Uses standard perifocal frame (PQW):
+        * P-axis: Points to periapsis
+        * Q-axis: 90° from P in orbital plane
+        * W-axis: Angular momentum vector (h)
+        - For circular orbits, rotation angle may be undefined
+        - All vectors transformed to perifocal frame
+        """
+                
         #Converting the delta_true_anomaly to radians to be used with math.sin() and math.cos()
         if not is_radians:
             tr_anomaly = delta_true_anomaly * pi / 180
 
         #Converting the r0 and v0 to array to perform vector calculus using np
-        r0 = np.array(r0)
-        v0 = np.array(v0)
+        r0 = np.array(R0)
+        v0 = np.array(V0)
 
         #Finding the angular momentum of the orbit
         _ , h = self.specific_angular_momentum(r0, v0) 
@@ -212,9 +364,33 @@ class Orbit_2body():
 
         return r_vec, v_vec, angle_of_rotation
 
-    #If the 2Body assumption without disturbance and thruster's interfearance are assume the h = constant
-    def specific_angular_momentum(self, r, v):
-        "Calculating  the specific angular momentum of the sattlite in a specific location"
+    #📝 Calculating the h and it's magnitude from the postion vector and veloctiy vector 
+    def specific_angular_momentum(self, r:Optional[Union[List[float], np.ndarray]], v:Optional[Union[List[float], np.ndarray]]) -> Tuple[np.ndarray, float]:
+        """Calculates the specific angular momentum vector and its magnitude.
+
+        Computes the orbital angular momentum per unit mass given position and velocity vectors.
+
+        Parameters
+        ----------
+        r : array_like, shape (3,)
+            Position vector [x, y, z] in inertial frame (km)
+        v : array_like, shape (3,)
+            Velocity vector [vx, vy, vz] corresponding to r (km/s)
+
+        Returns
+        -------
+        tuple
+            Contains:
+            - ndarray: Specific angular momentum vector [hx, hy, hz] (km²/s)
+            - float: Magnitude of angular momentum (km²/s)
+
+        Notes
+        -----
+        - Calculated as h = r × v (vector cross product)
+        - Represents angular momentum per unit mass (constant in two-body problem)
+        - Vector direction is normal to orbital plane
+        - Magnitude relates to orbital parameters: h² = μa(1-e²)
+        """
 
         #Convert to np.arr
         r = np.array(r)
@@ -228,9 +404,37 @@ class Orbit_2body():
 
         return h_vec, h_mag
 
-    #Calculating the dS/dt with the 2 Body differential equation 
-    def dS_dt(self, state ,t):  
-        "Returning the time derivative of the state vector"
+    #📝Calculating the dS/dt with the 2 Body differential equation(With no perturbation) 
+    def dS_dt(self, state: np.ndarray, t: float) -> np.ndarray:
+        """Computes the time derivative of the state vector for the two-body problem.
+
+        Solves the differential equations for Keplerian orbital motion under central gravity.
+
+        Parameters
+        ----------
+        state : ndarray, shape (6,)
+            Current state vector containing:
+            - [0:3] : Position components [x, y, z] (km)
+            - [3:6] : Velocity components [x_dot, y_dot, z_dot] (km/s)
+        t : float
+            Current time (unused but required by ODE solver interface) (s)
+
+        Returns
+        -------
+        ndarray, shape (6,)
+            State vector derivative containing:
+            - [0:3] : Velocity components [x_dot, y_dot, z_dot] (km/s)
+            - [3:6] : Acceleration components [x_ddot, y_ddot, z_ddot] (km/s²),
+            calculated as a = -μr/|r|³
+
+        Notes
+        -----
+        - Pure two-body dynamics (no perturbations)
+        - Time parameter 't' maintained for solver compatibility
+        - For numerical stability with low orbits:
+        Consider adding ε to denominator (a = -μr/(|r|³ + ε))
+        - Acceleration components follow inverse-square law
+        """
 
         x = state[0]
         y = state[1]
@@ -246,9 +450,38 @@ class Orbit_2body():
 
         return ds_dt
     
-    #Calculating the dS/dt with the 2 Body differential equation + J2 perturbation
-    def dS_dt_J2(self, state ,t):  
-        "Returning the time derivative of the state vector"
+    #📝Calculating the dS/dt with the 2 Body differential equation + J2 perturbation
+    def dS_dt_J2(self, state: np.ndarray, t: float) -> np.ndarray:
+        """Computes the time derivative of the state vector including J2 perturbation.
+
+        Implements differential equations for orbital motion with central gravity and J2 effects.
+
+        Parameters
+        ----------
+        state : ndarray
+            Current state vector with shape (6,) containing:
+            - [0:3]: Position components [x, y, z] in ECI frame (km)
+            - [3:6]: Velocity components [x_dot, y_dot, z_dot] (km/s)
+        t : float
+            Current time (required for ODE solver compatibility) (s)
+
+        Returns
+        -------
+        ndarray
+            Derivative of state vector with shape (6,) containing:
+            - [0:3]: Velocity components (same as input) (km/s)
+            - [3:6]: Acceleration components including:
+                * Central gravity (two-body)
+                * J2 perturbation (km/s²)
+
+        Notes
+        -----
+        - Uses Earth's equatorial radius (6378 km) for J2 calculations
+        - J2 coefficient (self.J2) typically 1.08263e-3 for Earth
+        - Gravitational parameter (self.mu) in km³/s²
+        - Time parameter 't' unused in calculation but required by solver interface
+        - J2 accounts for Earth's oblateness effect (zonal harmonic)
+        """
 
         x = state[0]
         y = state[1]
@@ -266,15 +499,55 @@ class Orbit_2body():
 
         return ds_dt
     
-    #Calculating the dS/dt with the 2 Body differential equation + J2 perturbation
-    def dS_dt_HFOP(self, state ,t):  
-        "Returning the time derivative of the state vector"
+    #📝Calculating the dS/dt with the 2 Body differential equation + J2 perturbation
+    def dS_dt_HFOP(self, state:np.ndarray ,t:float) -> np.ndarray:  
+        """Computes the time derivative of the state vector including multiple perturbations.
 
-        #Loading the starting time
+        Implements differential equations for orbital motion with multiple perturbation effects.
+
+        Parameters
+        ----------
+        state : ndarray
+            Current state vector with shape (6,) containing:
+            - [0:3]: Position components [x, y, z] in ECI frame (km)
+            - [3:6]: Velocity components [x_dot, y_dot, z_dot] (km/s)
+        t : float
+            Time since scenario epoch (s)
+
+        Returns
+        -------
+        ndarray
+            Derivative of state vector with shape (6,) containing:
+            - [0:3]: Velocity components [x_dot, y_dot, z_dot] (km/s)
+            - [3:6]: Acceleration components [x_ddot, y_ddot, z_ddot] (km/s²)
+            Includes effects from:
+            * Central gravity
+            * J2 perturbation
+            * Third-body gravity
+            * Solar radiation pressure
+            * Atmospheric drag
+            * Thrust forces
+
+        Notes
+        -----
+        - Requires SPICE kernels loaded for ephemeris calculations
+        - Uses NRLMSISE-00 atmospheric model
+        - All calculations performed in ECI (J2000) frame
+        - Acceleration components include all perturbation effects
+        - Time parameter 't' required for perturbation calculations
+        """
+
+        # ===== Time and Position Setup =====
         scenario_epoch = self.scenario_epoch
-
-        #Current time
         current_time = scenario_epoch + timedelta(seconds=t)
+
+        x = state[0]
+        y = state[1]
+        z = state[2]
+        x_dot = state[3]
+        y_dot = state[4]
+        z_dot = state[5]
+        
 
         #☀️ Get Sun's position relative to Earth in J2000 frame (ECI)
         r_sun = spice.spkpos("SUN", spice.str2et((scenario_epoch + timedelta(seconds = t)).strftime("%Y-%m-%dT%H:%M:%S")), "J2000", "NONE", "EARTH")[0]
@@ -283,12 +556,6 @@ class Orbit_2body():
         # Get the jupiter's position vector relative to Earth in J2000 frame (ECI)
         # r_jupiter = lambda time :spice.spkpos("JUPITER", spice.str2et((scenario_epoch + timedelta(seconds = time)).strftime("%Y-%m-%dT%H:%M:%S")), "J2000", "NONE", "EARTH")[0]
 
-        x = state[0]
-        y = state[1]
-        z = state[2]
-        x_dot = state[3]
-        y_dot = state[4]
-        z_dot = state[5]
 
         #Finding the local solar time of the satellite
         local_satellite_time = self.local_solar_time(r=np.array([x,y,z]) ,t=t ,scenario_epoch=scenario_epoch )
@@ -354,11 +621,39 @@ class Orbit_2body():
 
         ds_dt = np.array([x_dot, y_dot, z_dot, x_ddot, y_ddot, z_ddot])
        
-
         return ds_dt
 
-    #✅Calculating the Specific Mechanical Energy of the Orbit_2body
-    def energy(self, r, v):
+    #📝Calculating the Specific Mechanical Energy of the Orbit_2body
+    def energy(self, r:Optional[Union[List[float], np.ndarray]], v:Optional[Union[List[float], np.ndarray]]) -> float:
+        """Calculates the specific mechanical energy of an orbit in the two-body problem.
+
+        The specific mechanical energy (ε) is a conserved quantity that determines the
+        orbit type (elliptical, parabolic, or hyperbolic).
+
+        Parameters
+        ----------
+        r : array_like
+            Position vector [x, y, z] in inertial frame (km)
+        v : array_like
+            Velocity vector [vx, vy, vz] corresponding to r (km/s)
+
+        Returns
+        -------
+        float
+            Specific mechanical energy (ε) in km²/s², where:
+            * ε < 0 : Elliptical orbit
+            * ε = 0 : Parabolic orbit
+            * ε > 0 : Hyperbolic orbit
+
+        Notes
+        -----
+        - For elliptical orbits: ε = -μ/(2a), where a is semi-major axis
+        - Represents energy per unit mass (mass-independent)
+        - Negative values indicate bound orbits
+        - Uses gravitational parameter μ (self.mu) in km³/s²
+        - Conserved quantity in two-body problem
+        """
+
         #Turn the r and v into numpy array
         r = np.array(r)
         v = np.array(v)
@@ -373,8 +668,44 @@ class Orbit_2body():
 
         return energy
 
-    #Will indicate the type of the orbit
-    def orbit_type(self, r=None, v=None, threshold=0.5):
+    #📝Will indicate the type of the orbit
+    def orbit_type(self, r:Optional[np.ndarray]=None, v:Optional[np.ndarray]=None, threshold:float=0.5) -> str:
+        """Determines the type of orbit based on specific mechanical energy.
+
+        Classifies the orbit as elliptical (including circular), parabolic, or hyperbolic
+        by analyzing the specific mechanical energy with numerical tolerance.
+
+        Parameters
+        ----------
+        r : array_like, optional
+            Position vector [x, y, z] in km. Required if orbit hasn't been propagated.
+        v : array_like, optional
+            Velocity vector [vx, vy, vz] in km/s. Required if orbit hasn't been propagated.
+        threshold : float, optional
+            Energy threshold for parabolic classification in km²/s² (default: 0.5).
+            Represents half-width of the energy band considered "parabolic".
+
+        Returns
+        -------
+        str
+            Orbit type as one of:
+            - 'elliptical' (includes circular orbits)
+            - 'parabolic' (within ±threshold of zero energy)
+            - 'hyperbolic'
+
+        Raises
+        ------
+        ValueError
+            If neither state vectors nor propagated orbit data is available
+
+        Notes
+        -----
+        - Circular orbits are currently classified as elliptical
+        - Uses initial state from propagated orbits if available
+        - Threshold accounts for numerical precision in energy calculations
+        - Future versions may distinguish circular from elliptical orbits
+        """
+
         #Check if r and v are given 
         if r != None and v != None:
             energy = self.energy(r,v)
@@ -397,17 +728,37 @@ class Orbit_2body():
         elif energy > 0 :
             return "hyperbolic"
         
-    #✅Calculating the eccentricity vector and magnitude
-    def eccentricity(self, r, v):
-        """
-        Calculating the e vector and magnitude using r and v
-        Parameters:\n
-            r: (np.array([rx, ry, rz])) position vector in ECI in [km]
-            v: (np.array([vx, vy, vz])) velocity vector in ECI in [km]
+    #📝Calculating the eccentricity vector and magnitude
+    def eccentricity(self, r:Optional[Union[List[float], np.ndarray]], v:Optional[Union[List[float], np.ndarray]]) -> Tuple[np.ndarray, float]:
+        """Calculates the eccentricity vector and its magnitude for an orbit.
 
-        Returns:\n
-            e_vec: (np.array([ex, ey, ez])) Eccentricity vector
-            e_mag: (float) Magnitude of the eccentricity vector
+        Computes the Laplace-Runge-Lenz vector (eccentricity vector) which points toward
+        periapsis and whose magnitude equals the orbital eccentricity.
+
+        Parameters
+        ----------
+        r : array_like
+            Position vector [rx, ry, rz] in ECI frame (km)
+        v : array_like
+            Velocity vector [vx, vy, vz] in ECI frame (km/s)
+
+        Returns
+        -------
+        tuple
+            Contains:
+            - ndarray: Eccentricity vector [ex, ey, ez] (dimensionless)
+            - float: Eccentricity magnitude where:
+                * 0 = Circular orbit
+                * 0 < e < 1 = Elliptical orbit
+                * 1 = Parabolic orbit
+                * >1 = Hyperbolic orbit
+
+        Notes
+        -----
+        - The eccentricity vector points toward periapsis (closest approach)
+        - For circular orbits, vector direction is undefined when magnitude is zero
+        - Derived from specific angular momentum (h = r × v) using:
+        e = (v × h)/μ - r/|r|
         """
 
         #Conversion to array
@@ -430,16 +781,52 @@ class Orbit_2body():
         return e_vec, e_mag
 
     #Finding the change in true anomaly with time
-    def time_since_perigee(self ,true_anomaly, r=None, v=None, h=None, e=None, degree_mode=False):
-        """
-        Calculates the time required to get from the preigee to the specified true anomaly.\n
-        Parameters:\n
-            If h and e are known provide them otherwise provide r and v (true_anomaly must be in radians)\n
-            degree_mode : (bool) Set equal to true and the true_anomaly will be assumed to be in degrees \n
-        Returns:\n
-            time: Seconds\n 
-            error : Estimated absolute error
+    def time_since_perigee(self ,
+                           true_anomaly:float, 
+                           r:Optional[Union[List[float], np.ndarray]]=None, 
+                           v:Optional[Union[List[float], np.ndarray]]=None, 
+                           h:Optional[float]=None, 
+                           e:Optional[float]=None, 
+                           degree_mode=False) -> Tuple[float, float]:
+        """Calculates time elapsed since perigee passage for given true anomaly.
 
+        Computes time required to travel from perigee to specified true anomaly by
+        numerically integrating angular momentum equation. Works for all orbit types.
+
+        Parameters
+        ----------
+        true_anomaly : float
+            Angular position from perigee in radians (or degrees if degree_mode=True)
+        r : array_like, optional
+            Position vector [x, y, z] in km (required if h or e not provided)
+        v : array_like, optional
+            Velocity vector [vx, vy, vz] in km/s (required if h or e not provided)
+        h : float, optional
+            Magnitude of specific angular momentum in km²/s
+        e : float, optional
+            Orbit eccentricity (dimensionless)
+        degree_mode : bool, optional
+            If True, interprets true_anomaly as degrees (default is False)
+
+        Returns
+        -------
+        tuple
+            Contains:
+            - float: Time since perigee passage in seconds
+            - float: Estimated absolute error of integration in seconds
+
+        Raises
+        ------
+        ValueError
+            If insufficient orbital parameters are provided
+            If negative eccentricity is provided
+
+        Notes
+        -----
+        - Either the r and v vectors should be provided or the h and e.
+        - For elliptical orbits (e < 1), consider using mean anomaly for better accuracy
+        - Method becomes less accurate near parabolic orbits (e ≈ 1)
+        - Uses scipy.integrate.quad for numerical integration
         """
 
         #Check to see if the degree mode is beening used
@@ -448,7 +835,7 @@ class Orbit_2body():
 
         #Calcualting the neccessary variables(If not provided)
         if h == None:
-            h = self.specific_angular_momentum(r,v)
+            _ , h = self.specific_angular_momentum(r,v)
         if e == None:
             _ , e = self.eccentricity(r,v) 
 
@@ -460,21 +847,59 @@ class Orbit_2body():
         return time ,err
     
     #Calculating the true anomaly of the satellite from the time since preigee
-    def true_anomaly_from_time(self, time, h=None ,e=None ,r=None , v=None, degree_mode=False):
-        """
-        Calculates the true anomaly of satellite from the time since preigee.\n
-        Parameters:\n
-            If h and e are known provide them otherwise provide r and v (time is the time from preigee in seconds)\n
-            degree_mode : (bool) Set equal to true and the true_anomaly, eccentric_anomaly and mean_anomaly will be in degrees \n
-        Returns:\n
-            true_anomaly: (float) in radians
-            eccentric_anomaly: (flot)
-            mean_anomaly: (float) in radians
+    def true_anomaly_from_time(self, 
+                               time:float, 
+                               r:Optional[Union[List[float], np.ndarray]]=None, 
+                               v:Optional[Union[List[float], np.ndarray]]=None,
+                               h:Optional[float]=None, 
+                               e:Optional[float]=None,  
+                               degree_mode:bool=False) -> Tuple[float, float, float]:
+        """Calculate orbital anomalies from time since perigee.
+
+        Solves Kepler's equation to determine true anomaly, eccentric anomaly,
+        and mean anomaly given time since last perigee passage.
+
+        Parameters
+        ----------
+        time : float
+            Time elapsed since perigee passage (seconds)
+        h : float, optional
+            Specific angular momentum (km²/s)
+        e : float, optional
+            Orbital eccentricity (dimensionless)
+        r : array_like, optional, shape (3,)
+            Position vector [x, y, z] (km)
+        v : array_like, optional, shape (3,)
+            Velocity vector [vx, vy, vz] (km/s)
+        degree_mode : bool, optional
+            If True, returns angles in degrees (default: radians)
+
+        Returns
+        -------
+        tuple
+            Tuple containing:
+            - float: True anomaly (θ)
+            - float: Eccentric anomaly (E)
+            - float: Mean anomaly (M)
+
+        Raises
+        ------
+        ValueError
+            If insufficient orbital parameters are provided
+            If eccentricity is not in range [0, 1)
+
+        Notes
+        -----
+        - Only valid for elliptical orbits (0 ≤ e < 1)
+        - Uses Newton-Raphson to solve Kepler's equation: M = E - e sin(E)
+        - True anomaly calculated via: θ = 2 atan(sqrt((1+e)/(1-e)) * tan(E/2))
+        - For parabolic/hyperbolic orbits, different equations apply
+        - Either the r and v vectors should be provided or the h and e.
         """
 
         #Calcualting the neccessary variables(If not provided)
         if h == None:
-            h = self.specific_angular_momentum(r,v)
+            _ , h = self.specific_angular_momentum(r,v)
         if e == None:
             _ , e = self.eccentricity(r,v) 
     
@@ -507,10 +932,53 @@ class Orbit_2body():
 
         return true_anomaly, E, M_e
 
-    #✅Calculates the period of an orbit
-    def period(self, h:float, e:float):
-        "Calculates the priod of an orbit from true specific angular momentum and eccentricity"
+    #📝Calculates the period of an orbit
+    def period(self,
+                h:float=None, 
+                e:float=None ,
+                r:Optional[Union[List[float], np.ndarray]]=None ,
+                v:Optional[Union[List[float], np.ndarray]]=None) -> float:
+        """Calculate the orbital period from angular momentum and eccentricity.
+
+        Computes the period for both closed (elliptic/circular) and open 
+        (parabolic/hyperbolic) orbits.
+
+        Parameters
+        ----------
+        h : float, optional
+            Specific angular momentum in km²/s. Required if r and v not provided.
+        e : float, optional
+            Orbital eccentricity (dimensionless). Required if r and v not provided.
+        r : list or ndarray, optional, shape (3,)
+            Position vector [x, y, z] in km. Must be length 3.
+        v : list or ndarray, optional, shape (3,)
+            Velocity vector [vx, vy, vz] in km/s. Must be length 3.
+
+        Returns
+        -------
+        float
+            Orbital period in seconds (infinity for open orbits)
+
+        Raises
+        ------
+        ValueError
+            If insufficient parameters are provided
+            If eccentricity is negative
+
+        Notes
+        -----
+        - Either the r and v vectors should be provided or the h and e.
+        - For closed orbits (e < 1): T = 2π√(a³/μ)
+        - For open orbits (e ≥ 1): returns infinity
+        - More efficient when h and e are provided directly
+        """
         
+        #Calcualting the neccessary variables(If not provided)
+        if h == None:
+            _ , h = self.specific_angular_momentum(r,v)
+        if e == None:
+            _ , e = self.eccentricity(r,v) 
+
         #For open orbits T=inf
         if e >= 1:
             return float('inf')
@@ -525,8 +993,53 @@ class Orbit_2body():
         return T
 
     #✅Calculating the semi_major_axis of the orbit "a"
-    def semi_major_axis(self, h, e):
-        "Calculates the semi major axis of the orbit for any orbit-type"
+    def semi_major_axis(self,
+                h:float=None, 
+                e:float=None ,
+                r:Optional[Union[List[float], np.ndarray]]=None ,
+                v:Optional[Union[List[float], np.ndarray]]=None) -> float:
+        """Calculate the semi-major axis of an orbit.
+
+        Computes the semi-major axis for elliptical, circular, or hyperbolic orbits.
+        Undefined for parabolic orbits (e=1).
+
+        Parameters
+        ----------
+        h : float, optional
+            Specific angular momentum in km²/s. Required if r and v not provided.
+        e : float, optional
+            Orbital eccentricity (dimensionless). Required if r and v not provided.
+        r : list or ndarray, optional, shape (3,)
+            Position vector [x, y, z] in km. Must be length 3.
+        v : list or ndarray, optional, shape (3,)
+            Velocity vector [vx, vy, vz] in km/s. Must be length 3.
+
+        Returns
+        -------
+        float
+            Semi-major axis in km (positive for elliptical, negative for hyperbolic orbits)
+
+        Raises
+        ------
+        ValueError
+            If insufficient parameters are provided \n
+            If orbit is parabolic (e=1) \n
+            If eccentricity is negative \n
+
+        Notes
+        -----
+        - Either the r and v vectors should be provided or the h and e.
+        - For elliptical orbits (0 ≤ e < 1): a = h²/(μ(1-e²))
+        - For hyperbolic orbits (e > 1): a = h²/(μ(e²-1)) (returns negative value)
+        - Undefined for parabolic orbits (e=1)
+        - Circular orbits (e=0) are a special case of elliptical orbits
+        """
+
+        #Calcualting the neccessary variables(If not provided)
+        if h == None:
+            _ , h = self.specific_angular_momentum(r,v)
+        if e == None:
+            _ , e = self.eccentricity(r,v) 
 
         #Parabolic orbit -> a:undefined
         if e == 1:
@@ -538,24 +1051,54 @@ class Orbit_2body():
         return a 
 
     #Converting the Cartesian element to classical orbital elements
-    def cartesian_to_keplerain(self, r, v, degree_mode=False):
-        '''
-        Converting the cartesian to classical orbital elements(Position vector and velocity vector) for a single instance\n
-        Parameters:\n
-            r : (np.array([rx, ry, rz])) position vector in ECI in [km]\n
-            v : (np.array([vx, vy, vz])) velocity vector in ECI in [km]\n
-            degree_mode : (bool) if equal to true the i, w, RAAN and theta will be in degrees\n
+    def cartesian_to_keplerain(self, r:Union[List[float], np.ndarray], v:Union[List[float], np.ndarray], degree_mode:bool=False) -> Dict[str, float]:
+        """Convert Cartesian state vectors to classical orbital elements.
 
-        Returns:\n
-            dict: A dictionary containing
-                -e : (float) Eccentricity \n
-                -h : (float) Specific angular momentum\n
-                -theta : (float) True anomaly in radians\n
-                -i : (float) inclination in radians\n
-                -w : (float) Argument of preiapsis in radians \n
-                -RAAN : (float) right ascension of ascending node in radians\n
-            
-        '''
+        Parameters
+        ----------
+        r : array_like, shape (3,)
+            Position vector [rx, ry, rz] in ECI frame (km)
+        v : array_like, shape (3,)
+            Velocity vector [vx, vy, vz] in ECI frame (km/s)
+        degree_mode : bool, optional
+            If True, returns angles in degrees (default: radians)
+
+        Returns
+        -------
+        dict
+            Dictionary containing classical orbital elements:
+            - 'e' : float
+                Eccentricity (dimensionless)
+            - 'h' : float
+                Specific angular momentum (km²/s)
+            - 'theta' : float
+                True anomaly (degrees if degree_mode=True)
+            - 'i' : float
+                Inclination (degrees if degree_mode=True)
+            - 'w' : float
+                Argument of periapsis (degrees if degree_mode=True)
+            - 'RAAN' : float
+                Right ascension of ascending node (degrees if degree_mode=True)
+
+        Raises
+        ------
+        ValueError
+            If input vectors have incorrect dimensions
+            If orbit is rectilinear (h ≈ 0)
+
+        Notes
+        -----
+        - All angular elements are returned in radians by default
+        - For circular orbits (e=0), argument of periapsis is undefined
+        - For equatorial orbits (i=0), RAAN is undefined
+        - Conversion formulas:
+        * h = r × v
+        * e = (v × h)/μ - r/|r|
+        * i = acos(h_z/|h|)
+        * RAAN = atan2(N_y, N_x) where N = ẑ × h
+        * ω = atan2(e_z, e·N) 
+        * θ = atan2(r·e, |r|(1-e²))
+        """
 
         #Converting the r and v to array
         r = np.array(r)
@@ -612,21 +1155,48 @@ class Orbit_2body():
         return classical_orbital_elements
 
     #Converting the classical orbital element to state sapce 
-    def keplerian_to_cartesian(self, e, h, theta, i, RAAN, w, degree_mode=False):
-        '''
-        Converting the classical orbital elements to cartesian elements(Position vector and velocity vector) for a single instance
-        Parameters:\n
-            e: (float) Eccentricity 
-            h: (float) Specific angular momentum
-            theta : (float) True anomaly in radians
-            i : (float) inclination in radians
-            w : (float) Argument of preiapsis in radians 
-            degree_mode: (bool) if equal to true the i, w, RAAN and theta should be given in degrees
+    def keplerian_to_cartesian(self, e:float, h:float, theta:float, i:float, RAAN:float, w:float, degree_mode:bool=False) -> Tuple[np.ndarray, np.ndarray]:
+        """Convert classical orbital elements to Cartesian state vectors.
 
-        Returns:\n
-            r: (np.array([rx, ry, rz])) position vector in ECI in [km]
-            v: (np.array([vx, vy, vz])) velocity vector in ECI in [km]
-        '''
+        Parameters
+        ----------
+        e : float
+            Orbital eccentricity (dimensionless)
+        h : float
+            Specific angular momentum (km²/s)
+        theta : float
+            True anomaly (radians by default)
+        i : float
+            Inclination (radians by default)
+        RAAN : float
+            Right ascension of ascending node (radians by default)
+        w : float
+            Argument of periapsis (radians by default)
+        degree_mode : bool, optional
+            If True, input angles are interpreted as degrees (default: False)
+
+        Returns
+        -------
+        tuple
+            Contains:
+            - ndarray: Position vector [rx, ry, rz] in ECI frame (km)
+            - ndarray: Velocity vector [vx, vy, vz] in ECI frame (km/s)
+
+        Raises
+        ------
+        ValueError
+            If eccentricity is negative
+            If angular momentum is non-positive
+
+        Notes
+        -----
+        - Transformation steps:
+        1. Compute position/velocity in perifocal frame
+        2. Construct 3-1-3 rotation matrix (RAAN-i-w)
+        3. Transform to ECI frame
+        - For circular orbits (e=0), argument of periapsis is irrelevant
+        - For equatorial orbits (i=0), RAAN is irrelevant
+        """
 
         #Check if the angles are in radians or not
         if degree_mode:
@@ -663,21 +1233,36 @@ class Orbit_2body():
         #Returning the r and v vector in the ECI frame (Coordinate)
         return r_ECI , v_ECI
     
-    #Instance of what the input should look like sim = datetime(year = 2025, month = 5, day = 19, hour = 8, minute = 20 , second = 0)
-    def UTC_to_julian(self, dt):
-        """
-        Convert a datetime.datetime object (UTC) to Julian Date (JD) using the standard formula.
-        
-        Args:
-            dt (datetime.datetime): UTC datetime object
-            
-        Returns:
-            float: Julian Date (JD)
-            
-        Formula:
-            JD = 367*Y - INT(7*(Y + INT((M+9)/12))/4) 
-                + INT(275*M/9) + D + 1721013.5 
-                + (H + Min/60 + Sec/3600)/24
+    #🚧🏗️Instance of what the input should look like sim = datetime(year = 2025, month = 5, day = 19, hour = 8, minute = 20 , second = 0)
+    def UTC_to_julian(self, dt:datetime) -> float:
+        """Convert UTC datetime to Julian Date.
+
+        Parameters
+        ----------
+        dt : datetime
+            Input datetime object (must be UTC or timezone-naive)
+            Example: datetime(2025, 5, 19, 8, 20, 0)
+
+        Returns
+        -------
+        float
+            Julian Date as floating point number
+
+        Raises
+        ------
+        ValueError
+            If input datetime has non-UTC timezone
+            If input is not a datetime object
+
+        Notes
+        -----
+        - Uses the standard conversion formula:
+        JD = 367*Y - floor(7*(Y + floor((M+9)/12))/4) 
+            + floor(275*M/9) + D + 1721013.5 
+            + (H + Min/60 + Sec/3600)/24
+        - Valid for all dates after November 17, 1858
+        - Timezone-naive inputs are assumed to be UTC
+        - Includes microseconds in calculation
         """
 
         # Validate timezone
@@ -704,20 +1289,35 @@ class Orbit_2body():
     
     #Converting the UTC to the YYDDD format 
     def UTC_to_YYDDD(self, dt_utc: datetime) -> str:
-        """
-        Convert UTC datetime to YYDDD.xxxxxxxxxxxxxxx format (14 decimal places).
-        
-        Args:
-            dt_utc: timezone-naive (assumed UTC) or timezone-aware UTC datetime
-            
-        Returns:
-            str: Formatted string like '25139.354166666666667' where:
-                - 25: Last two digits of year
-                - 139: Day of year (001-366)
-                - .354166666666667: Fraction of day (08:30:00 = 0.354166...)
-        
-        Raises:
-            ValueError: If input has non-UTC timezone
+        """Convert UTC datetime to YYDDD.xxxxxxxxxxxxxxx format.
+
+        Parameters
+        ----------
+        dt_utc : datetime
+            Input datetime object (must be UTC or timezone-naive)
+            Example: datetime(2025, 5, 19, 8, 30, 0)
+
+        Returns
+        -------
+        str
+            Formatted string in YYDDD.xxxxxxxxxxxxxxx format where:
+            - YY: Last two digits of year
+            - DDD: Day of year (001-366)
+            - .xxxxxxxxxxxxxxx: Fraction of day with microsecond precision
+            Example: '25139.354166666666667' for May 19, 2025 08:30:00
+
+        Raises
+        ------
+        ValueError
+            If input has non-UTC timezone
+            If input is not a datetime object
+
+        Notes
+        -----
+        - Timezone-naive inputs are assumed to be UTC
+        - Maintains microsecond precision (14 decimal places)
+        - Format matches standard NASA/SPICE YYDDD.xxxxxxxxxxxxxxx convention
+        - Valid for all dates in the Gregorian calendar
         """
         # Validate timezone
         if dt_utc.tzinfo is not None and dt_utc.tzinfo != timezone.utc:
@@ -741,15 +1341,35 @@ class Orbit_2body():
     
     #Formating the UTC time 
     def format_utc(self, dt: datetime, decimals: int = 6) -> str:
-        """
-        Format a datetime object into a precise string representation.
-        
-        Args:
-            dt: datetime object (naive or timezone-aware)
-            decimals: Number of decimal places for seconds (default=6, no upper limit)
-            
-        Returns:
-            str: Formatted string like '19 May 2025 08:30:00.000000'
+        """Format UTC datetime to precise string representation.
+
+        Parameters
+        ----------
+        dt : datetime
+            Input datetime object (naive or timezone-aware UTC)
+            Example: datetime(2025, 5, 19, 8, 30, 15, 123456)
+        decimals : int, optional
+            Number of decimal places for seconds (default: 6)
+            Note: Values >6 will use microsecond precision but pad with zeros
+
+        Returns
+        -------
+        str
+            Formatted string in 'DD Month YYYY HH:MM:SS.ffffff' format
+            Example: '19 May 2025 08:30:15.123456'
+
+        Raises
+        ------
+        ValueError
+            If decimals is negative
+            If input is not a datetime object
+
+        Notes
+        -----
+        - Maintains full microsecond precision (6 decimal places)
+        - For decimals >6, pads with zeros (no additional precision)
+        - Timezone-naive inputs are assumed to be UTC
+        - Month name uses current locale settings
         """
         # Cross-platform day formatting (no leading zero)
         day = str(dt.day)
@@ -768,22 +1388,63 @@ class Orbit_2body():
         return f"{day} {base_time}{fraction:.{decimals}f}"[1:] if fraction < 0.1 else f"{day} {base_time}{fraction:.{decimals}f}"
 
     #Saving the propagted orbit in the FreeFlyer ephermeris format (STK)
-    def save_ephermeris_freeflyer(self, r, v, t, scenario_epoch = datetime.now(timezone.utc), stk_version = "stk.v.11.0",interpolation_method = "Lagrange", interpolation_samplesM1 = 7, central_body = "Earth", coordinate_system="ICRF" , file_name="orbit"):
-        '''
-        Will save the orbit as an ephermeris and can be used with STK
-            Parameters:\n
-                r: (np.arr) The trajectory 
-                v: (np.arr) The velocity 
-                t: (np.arr) Time since the start of simulation
-                stk_version : (string) 
-                scenario_epoch : (datetime) Time of the start of simulation in UTC 
-                interpolation_method : (str) interpolation method used in the STK
-                interpolation_samplesM1 : (int)  number of data points used for interpolation. 
-                central_body : (str) central body of the simulation
-                coordinate_system : (str) coordinate system used for describing r and v
-                file_name : (str) the name/directory in which the file we saved at
+    def save_ephermeris_freeflyer(self, 
+                                  r:np.ndarray, 
+                                  v:np.ndarray, 
+                                  t:np.ndarray, 
+                                  scenario_epoch:datetime = datetime.now(timezone.utc), 
+                                  stk_version:str = "stk.v.11.0",
+                                  interpolation_method:str = "Lagrange", 
+                                  interpolation_samplesM1:int = 7, 
+                                  central_body:str = "Earth", 
+                                  coordinate_system:str="ICRF", 
+                                  file_name:str="orbit") -> str:
+        """Save propagated orbit in STK-compatible FreeFlyer ephemeris format.
 
-        '''
+        Parameters
+        ----------
+        r : array_like, shape (N,3)
+            Position vectors in km [rx, ry, rz]
+        v : array_like, shape (N,3)
+            Velocity vectors in km/s [vx, vy, vz]
+        t : array_like, shape (N,)
+            Time values in seconds since scenario epoch
+        scenario_epoch : datetime, optional
+            Reference epoch for the ephemeris (default: current UTC time)
+        stk_version : str, optional
+            STK version string (default: "stk.v.11.0")
+        interpolation_method : str, optional
+            Interpolation method for STK (default: "Lagrange")
+        interpolation_samplesM1 : int, optional
+            Number of interpolation points minus one (default: 7)
+        central_body : str, optional
+            Central body name (default: "Earth")
+        coordinate_system : str, optional
+            Reference coordinate system (default: "ICRF")
+        file_name : str, optional
+            Base filename without extension (default: "orbit")
+
+        Returns
+        -------
+        str
+            Confirmation message with saved file path
+
+        Raises
+        ------
+        ValueError
+            If input arrays have inconsistent shapes
+            If time values are not monotonically increasing
+
+        Notes
+        -----
+        - Output file uses .e extension
+        - Format compatible with STK and FreeFlyer
+        - Includes multiple time representations:
+        * Formatted UTC string
+        * Julian date
+        * YYDDD format
+        - Uses 14 decimal places for all numerical values
+        """
 
         #Ensuring the r and v and t are in np.arr
         r = np.array(r).reshape((len(r), 3))
@@ -847,18 +1508,54 @@ CoordinateSystem        {coordinate_system}
         return  "Ephermeris saved at:" + file_name + ".e"
     
     #Saving the orbit with the spk format .bsp (Used by SPCIE kernels)
-    def save_to_spk(self, r_vectors, v_vectors, time, scenario_epoch=datetime.now(timezone.utc), output_file="orbit", kernel_list=["naif0012.tls", "pck00010.tpc"], kernel_base_dir="./kernels"):
-        """
-        Save orbit data to SPK (.bsp) file
+    def save_to_spk(self, 
+                    r_vectors:np.ndarray, 
+                    v_vectors:np.ndarray, 
+                    time:np.ndarray, 
+                    scenario_epoch=datetime.now(timezone.utc), 
+                    output_file="orbit", 
+                    kernel_list=["naif0012.tls", "pck00010.tpc"], 
+                    kernel_base_dir="./kernels") -> str:
+        """Save orbit data to SPICE SPK (.bsp) format kernel.
 
-        Args:
-            r_vectors: Nx3 array of position vectors (km)
-            v_vectors: Nx3 array of velocity vectors (km/s)
-            time: array of simulation times corresponding to the r_vector and v_vector(Output of the propagate_init_cond)
-            scenario_epoch : (datetime) Time of the start of simulation in UTC 
-            output_file: Output SPK file path
-            kernel_list: Array of kernel names that has to be loaded
-            kernel_base_dir : The folder in which the kernels are saved
+        Parameters
+        ----------
+        r_vectors : array_like, shape (N,3)
+            Position vectors in km in ICRF/J2000 frame
+        v_vectors : array_like, shape (N,3)
+            Velocity vectors in km/s in ICRF/J2000 frame
+        time : array_like, shape (N,)
+            Time values in seconds since scenario epoch
+        scenario_epoch : datetime, optional
+            Reference epoch for the ephemeris (default: current UTC time)
+        output_file : str, optional
+            Base filename without extension (default: "orbit")
+        kernel_list : list of str, optional
+            Required SPICE kernels (default: ["naif0012.tls", "pck00010.tpc"])
+        kernel_base_dir : str, optional
+            Directory containing SPICE kernels (default: "./kernels")
+
+        Returns
+        -------
+        str
+            Confirmation message with saved file path
+
+        Raises
+        ------
+        ValueError
+            If input arrays have inconsistent shapes
+            If time values are not monotonically increasing
+        RuntimeError
+            If SPICE kernel operations fail
+
+        Notes
+        -----
+        - Output file uses .bsp extension
+        - Uses SPK type 9 (Lagrange interpolation)
+        - Frame defaults to J2000 (equivalent to ICRF for Earth-centered orbits)
+        - Custom spacecraft ID: -999
+        - Earth center ID: 399
+        - Automatically loads required kernels
         """
         #Converting the scenario_epoch to julian date
         start_time_julian = self.UTC_to_julian(scenario_epoch)
@@ -939,21 +1636,66 @@ CoordinateSystem        {coordinate_system}
         return f"Saved SPK file to {output_file}"
 
     #Converting the julian date to SPICE ephermeris date 
-    def jd_to_et(self, julian_date):
-        """Convert Julian Date to SPICE ephemeris time (TDB)"""
+    def jd_to_et(self, julian_date:Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+        """Convert Julian Date to SPICE ephemeris time (TDB).
+
+        Parameters
+        ----------
+        julian_date : float or ndarray
+            Julian Date (JD) to convert, can be scalar or array
+            Example: 2451545.0 (J2000 epoch)
+
+        Returns
+        -------
+        float or ndarray
+            Ephemeris Time (ET) in seconds past J2000 TDB
+            Same shape as input (scalar or array)
+
+        Notes
+        -----
+        - Conversion formula: ET = (JD - 2451545.0) * 86400.0
+        - 2451545.0 is the Julian Date of J2000 epoch (2000-01-01 12:00:00 TDB)
+        - 86400.0 is the number of seconds in a day
+        - TDB (Barycentric Dynamical Time) is the time scale used by SPICE
+        - For most Earth-based applications, TDB ≈ TT ≈ TAI+32.184s ≈ UTC+leap_seconds+32.184s
+        """
+        
         return (julian_date - 2451545.0) * 86400.0  # Convert JD to seconds past J2000
     
     #✅A coordiante transformation from earth entered inertia to earth centered earth fixed
-    def ECI_to_ECEF(self, r, t, scenario_epoch = datetime.now(timezone.utc)):
-        """
-        Converting position vector(s) from ECI to ECEF frame.
+    def ECI_to_ECEF(self, r:Union[np.ndarray, List[List[float]]], t:Union[np.ndarray, List[float]], scenario_epoch:datetime = datetime.now(timezone.utc)) -> np.ndarray:
+        """Convert position vectors from ECI (J2000) to ECEF frame.
 
-        Args:
-            r: (np.array) The list of position vectors at different time steps
-            t: (np.array) The time elapsed since the start of the simulation(time steps) in seconds
-            scenario_epoch: (datetime) The UTC time at which the simulation was started
-        Returns:
-            r_transformed: (np.array) The positionvectors in ECEF
+        Parameters
+        ----------
+        r : array_like, shape (N,3) or (3,)
+            Position vector(s) in ECI frame (km)
+        t : array_like, shape (N,) or scalar
+            Time elapsed since scenario epoch (seconds)
+        scenario_epoch : datetime
+            UTC epoch at which simulation started (must be timezone-aware)
+
+        Returns
+        -------
+        ndarray
+            Transformed position vector(s) in ECEF frame (km), same shape as input
+
+        Raises
+        ------
+        ValueError
+            If input shapes are incompatible
+            If scenario_epoch is timezone-naive
+        TypeError
+            If input types are invalid
+
+        Notes
+        -----
+        - Transformation accounts for Earth rotation between vernal equinox alignment
+        and scenario epoch
+        - Uses Earth rotation rate (w_earth) stored in class instance
+        - For vectorized operation, ensure r and t have compatible shapes
+        - ECI frame: J2000 Earth-centered inertial
+        - ECEF frame: Earth-centered, Earth-fixed (rotates with Earth)
         """
         
         #Conversion to array
@@ -995,15 +1737,37 @@ CoordinateSystem        {coordinate_system}
         return transformed_r
     
     #💱Calculating the latitude and the longitude of the subsatellite point
-    def lat_long_from_ECEF(self, r_ecef:np.ndarray):
-        """
-        Determines the latitude and longitude of the subsatellite point.
-        Args:
-            r_ecef (np.array): Position vector(s) of satellite in the ECEF frame.
-        Returns:
-            tuple of np.array: (lat, long) where:
-                lat (np.array): Latitude in degrees.
-                long (np.array): Longitude in degrees.
+    def lat_long_from_ECEF(self, r_ecef:np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Calculate geodetic latitude and longitude from ECEF position vectors.
+
+        Parameters
+        ----------
+        r_ecef : array_like, shape (N,3)
+            Position vector(s) in Earth-Centered Earth-Fixed (ECEF) frame in km
+            Each row should be [x, y, z] coordinates
+
+        Returns
+        -------
+        tuple
+            Contains:
+            - ndarray: Geodetic latitude in degrees (-90° to +90°)
+            - ndarray: Longitude in degrees (-180° to +180°)
+
+        Raises
+        ------
+        ValueError
+            If input is not a 3D vector or array of 3D vectors
+            If input contains invalid positions (zero magnitude)
+
+        Notes
+        -----
+        - Latitude is calculated as arcsin(z/r)
+        - Longitude is calculated as atan2(y, x)
+        - Output ranges:
+        * Latitude: -90° (South Pole) to +90° (North Pole)
+        * Longitude: -180° (West) to +180° (East)
+        - For zero-radius vectors (r=0), returns (nan, nan)
+        - Uses WGS84 reference ellipsoid implicitly
         """
 
         #🌐Calculating the latitude and the longitude
@@ -1013,17 +1777,33 @@ CoordinateSystem        {coordinate_system}
         return lat, long
     
     #💱Calculating the latitude and the longitude of the subsatellite point
-    def lat_long_from_ECI(self ,r_eci:np.ndarray ,t:np.ndarray ,scenario_epoch = datetime.now(timezone.utc)):
-        """
-        Determines the latitude and longitude of the subsatellite point.
-        Args:
-            r_ecef (np.array): Position vector(s) of satellite in the ECI frame.
-            t: (np.array) The time elapsed since the start of the simulation(time steps) in seconds
-            scenario_epoch: (datetime) The UTC time at which the simulation was started
-        Returns:
-            tuple of np.array: (lat, long) where:
-                lat (np.array): Latitude in degrees.
-                long (np.array): Longitude in degrees.
+    def lat_long_from_ECI(self ,r_eci:np.ndarray ,t:np.ndarray ,scenario_epoch: datetime = datetime.now(timezone.utc)) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute the subsatellite point's latitude and longitude from ECI coordinates.
+
+        Converts the satellite's position from Earth-Centered Inertial (ECI) to Earth-Centered, Earth-Fixed (ECEF)
+        and then derives geodetic latitude and longitude.
+
+        Parameters
+        ----------
+        r_eci : np.ndarray
+            Position vector(s) of the satellite in the ECI frame. Shape must be (3,) or (N, 3).
+        t : np.ndarray
+            Time elapsed since the simulation start (in seconds). Can be a scalar or an array.
+        scenario_epoch : datetime, optional
+            UTC epoch time at which the simulation started. Defaults to current UTC time.
+
+        Returns
+        -------
+        lat : np.ndarray
+            Geodetic latitude in degrees, in the range [-90°, 90°].
+        long : np.ndarray
+            Geodetic longitude in degrees, in the range [-180°, 180°].
+
+        Notes
+        -----
+        - This method relies on `ECI_to_ECEF` for coordinate frame conversion and `lat_long_from_ECEF` for geodetic calculations.
+        - Longitude is wrapped to [-180°, 180°] to avoid ambiguity.
+        - If `r_eci` is a time series (shape `(N, 3)`), the output will be arrays of shape `(N,)`.
         """
 
         #Converting the position vector from ECI to ECEF
@@ -1039,15 +1819,31 @@ CoordinateSystem        {coordinate_system}
         return lat, long
 
     #⌚Finding the local solar time of the subsatellite  
-    def local_solar_time(self, r, t, scenario_epoch):
-        """
-        Local solar time of the subsatellite (Only works for a single position vector)
-        Args:
-            r : (np.ndarray) The position vector in ECI
-            t : (float) Seconds elapsed since the beginning of the simulation
-            scenario_epoch : (datetime.datetime) The UTC time of the start of simulation
-        Returns:
-            time : (datetime.datetime) The local solar time
+    def local_solar_time(self, r:Union[np.ndarray], t:Union[np.ndarray], scenario_epoch: datetime):
+        """Compute the local solar time at the subsatellite point for a single position vector.
+
+        Local solar time is determined by adjusting the scenario epoch based on the subsatellite's 
+        longitude (15° = 1 hour) and simulation elapsed time.
+
+        Parameters
+        ----------
+        r : np.ndarray or list[float]
+            Position vector in the Earth-Centered Inertial (ECI) frame. Shape (3,).
+        t : float
+            Seconds elapsed since the start of the simulation.
+        scenario_epoch : datetime
+            UTC time at which the simulation began.
+
+        Returns
+        -------
+        datetime
+            Local solar time at the subsatellite point.
+
+        Notes
+        -----
+        - Only supports a single position vector (not vectorized for multiple inputs).
+        - Assumes `lat_long_from_ECI` returns longitude in degrees [-180, 180].
+        - Longitudinal adjustment: 15° of longitude = 1 hour of solar time.
         """
         #Converting the r to np.ndarray
         r = np.array(r)
@@ -1067,8 +1863,39 @@ class OrbitVisualizer():
         return ['#'+''.join(random.sample(chars,6)) for i in range(num)]
 
     #The multiple visualizer
-    def simpleStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
-        "Plotting the orbit in static form. No animation"
+    def simpleStatic(self, r:Union[np.ndarray, List[List[float]]], colors:Optional[np.ndarray]=None, title:Optional[str]="3D orbit around earth", names:Optional[List[str]]=[], limits:Optional[np.ndarray]=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
+        """Plot static 3D visualization of satellite orbits around Earth.
+
+        Generates a 3D plot with:
+        - A blue sphere representing Earth.
+        - One or more orbital trajectories (lines) with customizable colors and labels.
+        - Configurable axis limits and plot aesthetics.
+
+        Parameters
+        ----------
+        r : np.ndarray or List[List[float]]
+            Orbit position data. Can be:
+            - Single orbit: Shape (N, 3) for N time steps.
+            - Multiple orbits: Shape (M, N, 3) for M orbits.
+        colors : np.ndarray, optional
+            RGB colors for each orbit. Shape (M, 3) or (M, 4) for RGBA.
+            If None, auto-generates distinct colors.
+        title : str, optional
+            Plot title. Default: "3D orbit around earth".
+        names : List[str], optional
+            Legend labels for each orbit. If empty, legend is hidden.
+        limits : np.ndarray, optional
+            Axis limits as [[x_max, x_min], [y_max, y_min], [z_max, z_min]].
+            Default: ±10,000 km on all axes.
+
+        Notes
+        -----
+        - Earth is represented as a blue sphere with radius 6371 km (approximate).
+        - Orbits are plotted as lines with 2px width by default.
+        - If `names` is not provided, the legend is hidden.
+        - Plot background is black with white grid/text for contrast.
+        """
+
         # Create figure
         fig = go.Figure()
 
@@ -1082,7 +1909,7 @@ class OrbitVisualizer():
         n = len(r)  
 
         #Check if the colors are provided otherwise generate the color set
-        if not colors:
+        if colors == None:
             colors = self.colorGenerator(n)
 
         #Check if the names(legends) are provided otherwise set all the values equal to "ORBIT" and disable the legend
@@ -1146,8 +1973,45 @@ class OrbitVisualizer():
         # Show plot
         fig.show()
 
-    def EarthStatic(self, r, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
-        "Plotting the orbit and the earth with countries borders"
+    def EarthStatic(self, r:Union[np.ndarray, List[List[float]]], colors:Optional[np.ndarray]=None, title:Optional[str]="3D orbit around earth", names:Optional[List[str]]=[], limits:Optional[np.ndarray]=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
+        """Plot 3D visualization of satellite orbits around Earth with country borders.
+
+        Generates an interactive 3D plot containing:
+        - A light blue sphere representing Earth
+        - Satellite orbital trajectories with customizable colors
+        - Country borders from Natural Earth dataset
+        - Configurable viewing parameters
+
+        Parameters
+        ----------
+        r : np.ndarray or List[List[float]]
+            Orbit position data. Can be:
+            - Single orbit: Shape (N, 3) for N time steps
+            - Multiple orbits: Shape (M, N, 3) for M orbits
+        colors : np.ndarray, optional
+            RGB colors for each orbit. Shape (M, 3) or (M, 4) for RGBA.
+            If None, auto-generates distinct colors using colorGenerator.
+        title : str, optional
+            Plot title. Default: "3D orbit around earth".
+        names : List[str], optional
+            Legend labels for each orbit. If empty, legend is hidden.
+        limits : np.ndarray, optional
+            Axis limits as [[x_max, x_min], [y_max, y_min], [z_max, z_min]].
+            Default: ±10,000 km on all axes.
+
+        Returns
+        -------
+        None
+            Displays the plot interactively using Plotly.
+
+        Notes
+        -----
+        - Earth is represented as a sphere with radius 6371 km (actual Earth radius)
+        - Country borders are fetched from Natural Earth dataset via GitHub
+        - Orbits are plotted as lines with 2px width by default
+        - Plot uses black background with white text for high contrast
+        - Handles both Polygon and MultiPolygon GeoJSON geometries
+        """
         # Create figure
         fig = go.Figure()
 
@@ -1370,7 +2234,7 @@ class OrbitVisualizer():
         fig.show()
 
 
-    def EarthDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
+    def EarthDynamic(self, r:Union[List[List[float]], np.ndarray], time:Union[List[float], np.ndarray], colors:Optional[List[str]]=None, title:Optional[str]="3D orbit around earth", names:Optional[List[str]]=[] ,limits:Optional[np.ndarray]=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         "Plotting the orbital motion with animation"
 
         # Get country borders from Natural Earth (GeoJSON)
@@ -1391,7 +2255,7 @@ class OrbitVisualizer():
         n = len(r)  
 
         #Check if the colors are provided otherwise generate the color set
-        if not colors:
+        if colors == None:
             colors = self.colorGenerator(n)
 
         #Check if the names(legends) are provided otherwise set all the values equal to "ORBIT" and disable the legend
@@ -1513,7 +2377,8 @@ class OrbitVisualizer():
         # Show plot
         fig.show()
 
-    def ground_track(self, latitudes, longitudes, names = [], show_legend = True, font_size_legend = 14):
+    #🏗️🚧
+    def ground_track(self, latitudes:Union[List[float], np.ndarray], longitudes:Union[List[float], np.ndarray], names:Optional[List[str]] = [], show_legend:bool = True, font_size_legend:int = 14):
         """Gets and prints the spreadsheet's header columns
 
         Parameters
