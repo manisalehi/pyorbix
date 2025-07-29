@@ -1864,7 +1864,7 @@ class OrbitVisualizer():
 
     #The multiple visualizer
     def simpleStatic(self, r:Union[np.ndarray, List[List[float]]], colors:Optional[np.ndarray]=None, title:Optional[str]="3D orbit around earth", names:Optional[List[str]]=[], limits:Optional[np.ndarray]=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
-        """Plot static 3D visualization of satellite orbits around Earth.
+        """Plot static 3D visualization of satellite orbits around Earth(Displayed as a blue sphere).
 
         Generates a 3D plot with:
         - A blue sphere representing Earth.
@@ -1878,7 +1878,7 @@ class OrbitVisualizer():
             - Single orbit: Shape (N, 3) for N time steps.
             - Multiple orbits: Shape (M, N, 3) for M orbits.
         colors : np.ndarray, optional
-            RGB colors for each orbit. Shape (M, 3) or (M, 4) for RGBA.
+            Hex code colors for each orbit.
             If None, auto-generates distinct colors.
         title : str, optional
             Plot title. Default: "3D orbit around earth".
@@ -1989,7 +1989,7 @@ class OrbitVisualizer():
             - Single orbit: Shape (N, 3) for N time steps
             - Multiple orbits: Shape (M, N, 3) for M orbits
         colors : np.ndarray, optional
-            RGB colors for each orbit. Shape (M, 3) or (M, 4) for RGBA.
+            Hex code colors for each orbit.
             If None, auto-generates distinct colors using colorGenerator.
         title : str, optional
             Plot title. Default: "3D orbit around earth".
@@ -2113,8 +2113,56 @@ class OrbitVisualizer():
 
 
 
-    def SimpleDynamic(self, r, time, colors=False, title="3D orbit around earth", names=[], limits=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
-        "Plotting the orbital motion with animation"
+    def SimpleDynamic(self, 
+                      r:Union[np.ndarray,List[np.ndarray]], 
+                      time:np.ndarray, 
+                      colors:List[str] = None, 
+                      title:str="3D orbit around earth", 
+                      names:List[str]=[], 
+                      limits:np.ndarray=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])
+                      )->None:
+        """
+        Create an animated 3D visualization of satellite orbital motion around Earth.
+
+        Generates an interactive plot with:
+        - A static blue sphere representing Earth (radius = 6371 km)
+        - Animated orbital trajectories
+        - Real-time time display in hours
+        - Play/pause animation controls
+
+        Parameters
+        ----------
+        r : list or np.ndarray 
+            Orbit position data from propagator. Can be:
+            - Single orbit: Shape (N, 3) for N time steps
+            - Multiple orbits: Shape (M, N, 3) for M orbits
+        time : np.ndarray
+            Time array corresponding to orbit positions (in seconds)
+        colors : np.ndarray, optional
+            If None (default), auto-generates colors using colorGenerator.
+            If list, should be Hex code of colors.
+        title : str, optional
+            Plot title. Default: "3D orbit around earth".
+        names : List[str] or str, optional
+            Legend labels for orbits. If empty list, legend is hidden.
+            If string, uses same name for all orbits.
+        limits : np.ndarray, optional
+            Axis limits as [[x_max, x_min], [y_max, y_min], [z_max, z_min]].
+            Default: ±10,000 km on all axes.
+
+        Returns
+        -------
+        None    
+            Displays interactive Plotly figure with animation controls.
+
+        Notes
+        -----
+        - Earth is represented as a perfect sphere (no topography)
+        - Animation frame rate depends on number of time steps
+        - Uses black background with white elements for contrast
+        - Time display shows elapsed hours in top-left corner
+        - Requires __sphereProvider and __sceneProviderSimple helper methods
+        """
 
         # Create figure
         fig = go.Figure()
@@ -2234,8 +2282,58 @@ class OrbitVisualizer():
         fig.show()
 
 
-    def EarthDynamic(self, r:Union[List[List[float]], np.ndarray], time:Union[List[float], np.ndarray], colors:Optional[List[str]]=None, title:Optional[str]="3D orbit around earth", names:Optional[List[str]]=[] ,limits:Optional[np.ndarray]=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
-        "Plotting the orbital motion with animation"
+    def EarthDynamic(self, 
+                     r:Union[List[List[float]], np.ndarray], 
+                     time:Union[List[float], np.ndarray], 
+                     colors:Optional[List[str]]=None, 
+                     title:Optional[str]="3D orbit around earth", 
+                     names:Optional[List[str]]=[], 
+                     limits:Optional[np.ndarray]=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])
+                     )->None:
+        """
+        Create an animated 3D visualization of satellite orbits around Earth with country borders.
+
+        Generates an interactive plot containing:
+        - A light blue sphere representing Earth (radius = 6371 km)
+        - Animated orbital trajectories with customizable colors
+        - Country borders from Natural Earth dataset
+        - Real-time elapsed time display
+        - Play/pause animation controls
+
+        Parameters
+        ----------
+        r : list or np.ndarray
+            Orbit position data. Can be:
+            - Single orbit: Shape (N, 3) for N time steps
+            - Multiple orbits: Shape (M, N, 3) for M orbits
+        time : list or np.ndarray
+            Time array corresponding to orbit positions (in seconds)
+        colors : list of str, optional
+            Color values for each orbit. If None, auto-generates using colorGenerator.
+            Must be a list of color Hex codes in the same order as orbits in the r.
+        title : str, optional
+            Plot title. Default: "3D orbit around earth".
+        names : list of str or str, optional
+            Legend labels for orbits. If empty list, legend is hidden.
+            If string, uses same name for all orbits.
+        limits : np.ndarray, optional
+            Axis limits as [[x_max, x_min], [y_max, y_min], [z_max, z_min]].
+            Default: ±10,000 km on all axes.
+
+        Returns
+        -------
+        None
+            Displays interactive Plotly figure with animation controls.
+
+        Notes
+        -----
+        - Country borders are fetched from Natural Earth dataset via GitHub
+        - Handles both Polygon and MultiPolygon GeoJSON geometries
+        - Animation frame rate depends on number of time steps
+        - Time display shows elapsed hours in top-left corner
+        - Uses black background with white elements for contrast
+        - Requires __sphereProvider and __sceneProviderSimple helper methods
+        """
 
         # Get country borders from Natural Earth (GeoJSON)
         geojson_url = "https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json"
@@ -2378,22 +2476,53 @@ class OrbitVisualizer():
         fig.show()
 
     #🏗️🚧
-    def ground_track(self, latitudes:Union[List[float], np.ndarray], longitudes:Union[List[float], np.ndarray], names:Optional[List[str]] = [], show_legend:bool = True, font_size_legend:int = 14):
-        """Gets and prints the spreadsheet's header columns
+    def ground_track(self, 
+                    latitudes:Union[List[float], np.ndarray], 
+                    longitudes:Union[List[float], np.ndarray],
+                    names:Optional[List[str]] = [], 
+                    show_legend:bool = True, 
+                    font_size_legend:int = 14)->None:
+        """
+        Visualize satellite ground tracks on an Earth map with start/end markers.
+
+        Creates an interactive geographic plot showing:
+        - Satellite ground tracks as lines
+        - Starting points (distinct markers)
+        - Ending points (distinct markers)
+        - Overlaid on a Blue Marble Earth image
+        - Customizable legend and styling
 
         Parameters
         ----------
-        latitudes : np.ndarray
-            A two dimensional array containing the latitudes for each satellite(Each row is for a different satellite).
-        longitudes : np.ndarray
-            A two dimensional array containing the longitudes for each satellite(Each row is for a different satellite).
-        names : list
-            A list containing the names that will be displayed for each satellite on the legend.
-        show_legend : bool
-            By diffualt is True determines if the legend show be displayed.
-        font_size_legend : int
-            The font size of the legend.
+        latitudes : list or np.ndarray
+            Array of latitude values. Can be:
+            - 1D array for single satellite (automatically reshaped)
+            - 2D array where each row represents a different satellite
+        longitudes : list or np.ndarray
+            Array of longitude values (same shape requirements as latitudes)
+        names : list or str, optional
+            Names for legend entries. Can be:
+            - List of strings (one per satellite)
+            - Single string (applied to all satellites)
+            - Empty list (auto-generates "Orbit0", "Orbit1", etc.)
+        show_legend : bool, optional
+            Whether to display the legend. Default: True
+        font_size_legend : int, optional
+            Font size for legend text. Default: 14
 
+        Returns
+        -------
+        None
+            Displays interactive Plotly figure in notebook.
+
+        Notes
+        -----
+        - Requires 'blue_marple_earth.jpg' image file for Earth background
+        - Currently only works in Jupyter notebooks
+        - Automatically handles single or multiple satellite tracks
+        - Uses distinct colors for tracks, start points, and end points
+        - Start/end markers are slightly larger than track lines
+        - Black background with no map borders for clean visualization
         """
 
 
