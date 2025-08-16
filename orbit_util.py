@@ -1863,7 +1863,7 @@ class OrbitVisualizer():
         return ['#'+''.join(random.sample(chars,6)) for i in range(num)]
 
     #The multiple visualizer
-    def simpleStatic(self, r:Union[np.ndarray, List[List[float]]], colors:Optional[np.ndarray]=None, title:Optional[str]="3D orbit around earth", names:Optional[List[str]]=[], limits:Optional[np.ndarray]=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
+    def SimpleStatic(self, r:Union[np.ndarray, List[List[float]]], colors:Optional[np.ndarray]=None, title:Optional[str]="3D orbit around earth", names:Optional[List[str]]=[], limits:Optional[np.ndarray]=np.array([[10_000, -10_000], [10_000, -10_000], [10_000, -10_000]])):
         """Plot static 3D visualization of satellite orbits around Earth(Displayed as a blue sphere).
 
         Generates a 3D plot with:
