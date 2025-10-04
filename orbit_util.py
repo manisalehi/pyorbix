@@ -1,5 +1,5 @@
 """"
-
+Python tool-kit for orbital mechanincs
 """
 
 #Dependencies
@@ -16,6 +16,8 @@ import nrlmsise00
 import os
 import sys
 from typing import Tuple, List, Callable, Any, Optional, Union, Dict
+import plotly.io as pio
+from PIL import Image
 
 
 
@@ -2545,10 +2547,12 @@ class OrbitVisualizer():
         elif type(names) is str:    #If the names has only a single value make i a list
             names = [names for i in range(len(latitudes))]
             
-        
-
         # Initialize figure
         fig = go.Figure()
+
+        # to render in jupyterlab
+        pio.renderers.default = "plotly_mimetype" #->This line will make sure the plot is shown correctly
+
 
         # Add Blue Marble image (replace with your path)
         fig.add_layout_image(
